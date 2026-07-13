@@ -42,7 +42,7 @@ func IndexRevision(ctx context.Context, tx pgx.Tx, input RevisionInput) error {
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, `+keywordVectorSQL("$4", "$7", "$8", "$9", "$10", "$11")+`)
 			RETURNING id`, input.ProjectID, input.RevisionID, ordinal, chunk.Text, location,
-			chunk.TokenCount, chunk.Kind, input.Title, strings.Join(input.Tags, " "), metadataText(input.Metadata),
+			chunk.TokenCount, chunk.Kind, input.Title, strings.Join(input.Tags, " "), metadataText(input.Metadata, input.SourceType),
 			input.SourceType).Scan(&chunkID)
 		if err != nil {
 			return fmt.Errorf("create search chunk %d: %w", ordinal, err)
@@ -63,7 +63,7 @@ func RefreshKeywords(ctx context.Context, tx pgx.Tx, input RevisionInput) error 
 		SET search_vector = `+keywordVectorSQL("normalized_text", "content_kind", "$3", "$4", "$5", "$6")+`
 		WHERE revision_id = $2 AND project_id = $1`,
 		input.ProjectID, input.RevisionID, input.Title, strings.Join(input.Tags, " "),
-		metadataText(input.Metadata), input.SourceType)
+		metadataText(input.Metadata, input.SourceType), input.SourceType)
 	if err != nil {
 		return fmt.Errorf("refresh keyword index: %w", err)
 	}
@@ -135,13 +135,18 @@ func keywordVectorSQL(text, kind, title, tags, metadata, sourceType string) stri
 		text, kind, title, tags, sourceType, metadata)
 }
 
-func metadataText(metadata json.RawMessage) string {
+func metadataText(metadata json.RawMessage, sourceType string) string {
 	if len(metadata) == 0 {
 		return ""
 	}
 	var value any
 	if json.Unmarshal(metadata, &value) != nil {
 		return ""
+	}
+	if sourceType == "conversation" {
+		if object, ok := value.(map[string]any); ok {
+			delete(object, "messages")
+		}
 	}
 	return flattenJSON(value)
 }

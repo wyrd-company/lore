@@ -72,6 +72,36 @@ func TestKeywordSearchWeightsTagsAndIsolatesProjects(t *testing.T) {
 	if len(filtered.Results) != 1 || filtered.Results[0].SourceIdentity != "tag-hit" {
 		t.Fatalf("tag filter results: %#v", filtered.Results)
 	}
+	conversationMetadata := json.RawMessage(`{"messages":[{"id":"user-1","role":"user","markdown":"calibration request"},{"id":"thinking-1","role":"assistant","markdown":"calibration reasoning","thinking":true}]}`)
+	conversation := synchronization.Manifest{
+		Project: "project-a", SourceInstance: "sessions", SourceType: "conversation", Boundary: synchronization.BoundaryComplete,
+		Documents: []synchronization.Document{searchDocument("conversation", "Discussion", "calibration request calibration reasoning", nil, conversationMetadata, "d")},
+	}
+	if _, err := sync.Apply(ctx, projectA, conversation); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT c.content_kind, ts_rank_cd(c.search_vector, plainto_tsquery('english', 'calibration'))
+		FROM chunks c
+		JOIN revisions r ON r.id = c.revision_id
+		JOIN documents d ON d.current_revision_id = r.id
+		WHERE d.project_id = $1 AND d.source_identity = 'conversation'`, projectA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranks := make(map[string]float64)
+	for rows.Next() {
+		var kind string
+		var rank float64
+		if err := rows.Scan(&kind, &rank); err != nil {
+			t.Fatal(err)
+		}
+		ranks[kind] = rank
+	}
+	rows.Close()
+	if ranks["user"] <= ranks["thinking"] {
+		t.Fatalf("conversation rank weights = %#v", ranks)
+	}
 }
 
 func searchDocument(identity, title, text string, tags []string, metadata any, hash string) synchronization.Document {

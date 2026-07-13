@@ -105,10 +105,12 @@ func (c *Client) request(ctx context.Context, payload []byte, expected int) ([][
 		return nil, 0, true, fmt.Errorf("AI Gateway returned %d embeddings for %d inputs", len(result.Data), expected)
 	}
 	vectors := make([][]float32, expected)
+	seen := make([]bool, expected)
 	for _, item := range result.Data {
-		if item.Index < 0 || item.Index >= expected || len(item.Embedding) != indexing.Dimensions {
+		if item.Index < 0 || item.Index >= expected || seen[item.Index] || len(item.Embedding) != indexing.Dimensions {
 			return nil, 0, false, fmt.Errorf("AI Gateway returned an invalid embedding at index %d with %d dimensions", item.Index, len(item.Embedding))
 		}
+		seen[item.Index] = true
 		vectors[item.Index] = item.Embedding
 	}
 	return vectors, 0, false, nil

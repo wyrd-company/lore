@@ -16,12 +16,12 @@ import (
 const reciprocalRankConstant = 60.0
 
 type Filters struct {
-	SourceTypes  []string
-	Branches     []string
-	Repositories []string
-	Tags         []string
-	CreatedFrom  *time.Time
-	CreatedTo    *time.Time
+	SourceTypes  []string   `json:"sourceTypes"`
+	Branches     []string   `json:"branches"`
+	Repositories []string   `json:"repositories"`
+	Tags         []string   `json:"tags"`
+	CreatedFrom  *time.Time `json:"createdFrom,omitempty"`
+	CreatedTo    *time.Time `json:"createdTo,omitempty"`
 }
 
 type Request struct {
@@ -100,6 +100,9 @@ func (r *Repository) Search(ctx context.Context, projectID uuid.UUID, request Re
 		}
 	}
 	results := fuse(keyword, vector, request.Limit)
+	if results == nil {
+		results = make([]DocumentResult, 0)
+	}
 	return Response{
 		Query: request.Query, Filters: request.Filters, Modes: Modes{Keyword: true, Vector: len(queryVector) > 0}, Results: results,
 	}, nil
@@ -268,7 +271,7 @@ func fuse(keyword, vector []candidate, limit int) []DocumentResult {
 			}
 			documents[chunk.documentID] = document
 		}
-		document.Score += chunk.result.Score
+		document.Score = max(document.Score, chunk.result.Score)
 		document.MatchedChunks = append(document.MatchedChunks, chunk.result)
 	}
 	result := make([]DocumentResult, 0, len(documents))

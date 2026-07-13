@@ -119,7 +119,7 @@ func (r *Repository) Projects(ctx context.Context) ([]ProjectSummary, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var projects []ProjectSummary
+	projects := make([]ProjectSummary, 0)
 	for rows.Next() {
 		var project ProjectSummary
 		var countsJSON []byte
@@ -148,6 +148,12 @@ func (r *Repository) Browse(ctx context.Context, projectID uuid.UUID) (BrowseRes
 		return BrowseResponse{}, err
 	}
 	response := BrowseResponse{Project: projects, Sources: sources}
+	response.Tags = make([]string, 0)
+	response.Tasks = make([]DocumentSummary, 0)
+	response.Notes = make([]DocumentSummary, 0)
+	response.Briefings = make([]DocumentSummary, 0)
+	response.Repositories = make([]RepositoryGroup, 0)
+	response.Conversations = make([]DocumentSummary, 0)
 	tagSet := make(map[string]struct{})
 	type repositoryKey struct{ repository, branch string }
 	repositories := make(map[repositoryKey][]DocumentSummary)
@@ -232,7 +238,7 @@ func (r *Repository) Revisions(ctx context.Context, projectID, documentID uuid.U
 		return nil, err
 	}
 	defer rows.Close()
-	var result []RevisionSummary
+	result := make([]RevisionSummary, 0)
 	for rows.Next() {
 		var revision RevisionSummary
 		if err := rows.Scan(&revision.ID, &revision.ContentHash, &revision.Renderer, &revision.CreatedAt,
@@ -274,7 +280,7 @@ func (r *Repository) documents(ctx context.Context, projectID uuid.UUID) ([]Docu
 		return nil, err
 	}
 	defer rows.Close()
-	var result []DocumentSummary
+	result := make([]DocumentSummary, 0)
 	for rows.Next() {
 		var document DocumentSummary
 		if err := rows.Scan(&document.ID, &document.SourceType, &document.SourceInstance, &document.SourceIdentity,
@@ -300,7 +306,7 @@ func (r *Repository) sources(ctx context.Context, projectID uuid.UUID) ([]Source
 		return nil, err
 	}
 	defer rows.Close()
-	var result []SourceSummary
+	result := make([]SourceSummary, 0)
 	for rows.Next() {
 		var source SourceSummary
 		if err := rows.Scan(&source.ID, &source.SourceType, &source.SourceInstance, &source.Metadata,
@@ -328,7 +334,7 @@ func (r *Repository) relationships(ctx context.Context, projectID, documentID uu
 		return nil, err
 	}
 	defer rows.Close()
-	var result []Relationship
+	result := make([]Relationship, 0)
 	for rows.Next() {
 		var relationship Relationship
 		if err := rows.Scan(&relationship.Direction, &relationship.Type, &relationship.DocumentID,
