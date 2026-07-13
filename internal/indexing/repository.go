@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const Model = "voyage/voyage-4"
@@ -67,6 +68,60 @@ func RefreshKeywords(ctx context.Context, tx pgx.Tx, input RevisionInput) error 
 		return fmt.Errorf("refresh keyword index: %w", err)
 	}
 	return nil
+}
+
+func BackfillCurrentRevisions(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT d.project_id, r.id, d.source_type, d.title, r.normalized_text, r.metadata,
+			coalesce(array_agg(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL), ARRAY[]::text[])
+		FROM documents d
+		JOIN revisions r ON r.id = d.current_revision_id
+		LEFT JOIN chunks c ON c.revision_id = r.id
+		LEFT JOIN document_tags dt ON dt.document_id = d.id AND dt.project_id = d.project_id
+		LEFT JOIN tags t ON t.id = dt.tag_id AND t.project_id = d.project_id
+		WHERE d.deleted_at IS NULL AND c.id IS NULL
+		GROUP BY d.project_id, r.id, d.source_type, d.title, r.normalized_text, r.metadata`)
+	if err != nil {
+		return 0, fmt.Errorf("find revisions requiring chunk backfill: %w", err)
+	}
+	inputs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (RevisionInput, error) {
+		var input RevisionInput
+		err := row.Scan(&input.ProjectID, &input.RevisionID, &input.SourceType, &input.Title,
+			&input.NormalizedText, &input.Metadata, &input.Tags)
+		return input, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	indexed := 0
+	for _, input := range inputs {
+		tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(ctx, `SELECT id FROM revisions WHERE id = $1 FOR UPDATE`, input.RevisionID); err != nil {
+			tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
+			return 0, err
+		}
+		var alreadyIndexed bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM chunks WHERE revision_id = $1)`, input.RevisionID).Scan(&alreadyIndexed); err != nil {
+			tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
+			return 0, err
+		}
+		if alreadyIndexed {
+			tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
+			continue
+		}
+		if err := IndexRevision(ctx, tx, input); err != nil {
+			tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
+			return 0, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return 0, err
+		}
+		indexed++
+	}
+	return indexed, nil
 }
 
 func keywordVectorSQL(text, kind, title, tags, metadata, sourceType string) string {

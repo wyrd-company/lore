@@ -15,7 +15,9 @@ import (
 
 	"github.com/wyrd-company/lore/internal/config"
 	"github.com/wyrd-company/lore/internal/database"
+	"github.com/wyrd-company/lore/internal/embedding"
 	"github.com/wyrd-company/lore/internal/httpapi"
+	"github.com/wyrd-company/lore/internal/indexing"
 	"github.com/wyrd-company/lore/internal/version"
 )
 
@@ -59,6 +61,22 @@ func serve(cfg config.Config) error {
 		return fmt.Errorf("create database pool: %w", err)
 	}
 	defer pool.Close()
+	backfilled, err := indexing.BackfillCurrentRevisions(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("backfill search chunks: %w", err)
+	}
+	if backfilled > 0 {
+		slog.Info("backfilled search chunks", "revisions", backfilled)
+	}
+	if cfg.AIGatewayAPIKey != "" {
+		embeddingClient, err := embedding.NewClient(cfg.AIGatewayAPIKey)
+		if err != nil {
+			return err
+		}
+		go embedding.NewWorker(pool, embeddingClient).Run(ctx)
+	} else {
+		slog.Warn("AI_GATEWAY_API_KEY is not set; keyword search is available and embeddings remain queued")
+	}
 
 	server := &http.Server{
 		Addr: cfg.ListenAddress, Handler: httpapi.New(pool, cfg.IngestToken, cfg.AdminToken),
