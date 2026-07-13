@@ -13,8 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/embedding"
 	"github.com/wyrd-company/lore/internal/retrieval"
 	"github.com/wyrd-company/lore/internal/synchronization"
@@ -25,6 +27,7 @@ type Server struct {
 	pool        *pgxpool.Pool
 	sync        *synchronization.Repository
 	search      *retrieval.Repository
+	browse      *browse.Repository
 	embedder    *embedding.Client
 	ingestToken string
 	adminToken  string
@@ -36,14 +39,17 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 		embedder = embedders[0]
 	}
 	server := &Server{
-		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), embedder: embedder,
+		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), embedder: embedder,
 		ingestToken: ingestToken, adminToken: adminToken,
 	}
 	mux := http.NewServeMux()
 
 	// Browse/search boundary. All handlers receive a resolved project in context.
-	mux.Handle("GET /api/projects/{project}/browse", projectScope(pool, http.HandlerFunc(server.stubBrowse)))
+	mux.Handle("GET /api/projects", http.HandlerFunc(server.listProjects))
+	mux.Handle("GET /api/projects/{project}/browse", projectScope(pool, http.HandlerFunc(server.browseProject)))
 	mux.Handle("GET /api/projects/{project}/search", projectScope(pool, http.HandlerFunc(server.searchProject)))
+	mux.Handle("GET /api/projects/{project}/documents/{document}", projectScope(pool, http.HandlerFunc(server.documentDetail)))
+	mux.Handle("GET /api/projects/{project}/documents/{document}/revisions", projectScope(pool, http.HandlerFunc(server.documentRevisions)))
 
 	// Annotation boundary.
 	mux.Handle("GET /api/projects/{project}/annotations", projectScope(pool, http.HandlerFunc(server.stubAnnotations)))
@@ -107,8 +113,75 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) stubBrowse(w http.ResponseWriter, r *http.Request) {
-	writeStub(w, r, "browse")
+func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.browse.Projects(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "project store unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (s *Server) browseProject(w http.ResponseWriter, r *http.Request) {
+	project, ok := projectFromContext(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusInternalServerError, "project scope missing")
+		return
+	}
+	response, err := s.browse.Browse(r.Context(), project.ID)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "browse failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) documentDetail(w http.ResponseWriter, r *http.Request) {
+	project, documentID, ok := scopedDocument(w, r)
+	if !ok {
+		return
+	}
+	document, err := s.browse.Document(r.Context(), project.ID, documentID)
+	if browse.IsNotFound(err) {
+		writeProblem(w, http.StatusNotFound, "document not found")
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "document retrieval failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (s *Server) documentRevisions(w http.ResponseWriter, r *http.Request) {
+	project, documentID, ok := scopedDocument(w, r)
+	if !ok {
+		return
+	}
+	revisions, err := s.browse.Revisions(r.Context(), project.ID, documentID)
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "revision retrieval failed")
+		return
+	}
+	if len(revisions) == 0 {
+		writeProblem(w, http.StatusNotFound, "document not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"documentId": documentID, "revisions": revisions})
+}
+
+func scopedDocument(w http.ResponseWriter, r *http.Request) (Project, uuid.UUID, bool) {
+	project, ok := projectFromContext(r.Context())
+	if !ok {
+		writeProblem(w, http.StatusInternalServerError, "project scope missing")
+		return Project{}, uuid.Nil, false
+	}
+	documentID, err := uuid.Parse(r.PathValue("document"))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "document must be a UUID")
+		return Project{}, uuid.Nil, false
+	}
+	return project, documentID, true
 }
 
 func (s *Server) searchProject(w http.ResponseWriter, r *http.Request) {

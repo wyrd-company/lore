@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/database"
 	"github.com/wyrd-company/lore/internal/httpapi"
 )
@@ -53,7 +56,7 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, slug, name) VALUES ($1, 'lore', 'Lore')`, uuid.New()); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, slug, name) VALUES ($1, 'lore', 'Lore'), ($2, 'other', 'Other')`, uuid.New(), uuid.New()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -110,6 +113,46 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		}
 	}
 
+	var projects struct {
+		Projects []browse.ProjectSummary `json:"projects"`
+	}
+	getJSON(t, server.URL+"/api/projects", http.StatusOK, &projects)
+	if len(projects.Projects) != 2 || projects.Projects[0].DocumentCount != 7 {
+		t.Fatalf("project listing = %#v", projects.Projects)
+	}
+	var listing browse.BrowseResponse
+	getJSON(t, server.URL+"/api/projects/lore/browse", http.StatusOK, &listing)
+	if len(listing.Tasks) != 2 || len(listing.Notes) != 1 || len(listing.Briefings) != 1 ||
+		len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 2 || len(listing.Conversations) != 1 {
+		t.Fatalf("browse listing = %#v", listing)
+	}
+	var taskID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM documents WHERE source_type = 'task' AND source_identity = '2'`).Scan(&taskID); err != nil {
+		t.Fatal(err)
+	}
+	var detail browse.DocumentDetail
+	getJSON(t, server.URL+"/api/projects/lore/documents/"+taskID.String(), http.StatusOK, &detail)
+	if detail.RenderedContent == "" || len(detail.Relationships) != 1 || detail.Relationships[0].Direction != "dependency" || len(detail.Revisions) != 1 {
+		t.Fatalf("task detail = %#v", detail)
+	}
+	var dependencyID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM documents WHERE source_type = 'task' AND source_identity = '1'`).Scan(&dependencyID); err != nil {
+		t.Fatal(err)
+	}
+	var dependency browse.DocumentDetail
+	getJSON(t, server.URL+"/api/projects/lore/documents/"+dependencyID.String(), http.StatusOK, &dependency)
+	if len(dependency.Relationships) != 1 || dependency.Relationships[0].Direction != "dependent" {
+		t.Fatalf("task dependent relationship = %#v", dependency.Relationships)
+	}
+	var revisionsResponse struct {
+		Revisions []browse.RevisionSummary `json:"revisions"`
+	}
+	getJSON(t, server.URL+"/api/projects/lore/documents/"+taskID.String()+"/revisions", http.StatusOK, &revisionsResponse)
+	if len(revisionsResponse.Revisions) != 1 || !revisionsResponse.Revisions[0].Current {
+		t.Fatalf("revision listing = %#v", revisionsResponse.Revisions)
+	}
+	getJSON(t, server.URL+"/api/projects/other/documents/"+taskID.String(), http.StatusNotFound, &map[string]any{})
+
 	notesDirectory := t.TempDir()
 	note, err := os.ReadFile(filepath.Join(fixtures, "notes", "note-identity.md"))
 	if err != nil {
@@ -142,6 +185,21 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("watch command did not stop after context cancellation")
+	}
+}
+
+func getJSON(t *testing.T, endpoint string, expectedStatus int, target any) {
+	t.Helper()
+	response, err := http.Get(endpoint) //nolint:gosec
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != expectedStatus {
+		t.Fatalf("GET %s returned %s", endpoint, response.Status)
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		t.Fatal(err)
 	}
 }
 
