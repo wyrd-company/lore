@@ -1,5 +1,6 @@
 .env
 .build-notes/
+.task/
 bin/
 coverage.out
 web/node_modules/
