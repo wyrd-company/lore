@@ -79,7 +79,7 @@ jobs:
           mkdir -p "artifacts/${name}"
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/wyrd-company/lore/internal/version.Value=${VERSION}" -o "artifacts/${name}/lore" ./cmd/lore
           tar -C "artifacts/${name}" -czf "artifacts/${name}.tar.gz" lore
-          sha256sum "artifacts/${name}.tar.gz" > "artifacts/${name}.tar.gz.sha256"
+          (cd artifacts && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
           rm -rf "artifacts/${name}"
       - uses: actions/upload-artifact@v4
         with:
