@@ -68,8 +68,9 @@ func serve(cfg config.Config) error {
 	if backfilled > 0 {
 		slog.Info("backfilled search chunks", "revisions", backfilled)
 	}
+	var embeddingClient *embedding.Client
 	if cfg.AIGatewayAPIKey != "" {
-		embeddingClient, err := embedding.NewClient(cfg.AIGatewayAPIKey)
+		embeddingClient, err = embedding.NewClient(cfg.AIGatewayAPIKey)
 		if err != nil {
 			return err
 		}
@@ -79,7 +80,7 @@ func serve(cfg config.Config) error {
 	}
 
 	server := &http.Server{
-		Addr: cfg.ListenAddress, Handler: httpapi.New(pool, cfg.IngestToken, cfg.AdminToken),
+		Addr: cfg.ListenAddress, Handler: httpapi.New(pool, cfg.IngestToken, cfg.AdminToken, embeddingClient),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
