@@ -1,0 +1,9 @@
+version: 10
+board:
+  name: Lore fixture
+tasks_dir: tasks
+statuses:
+  - name: backlog
+  - name: done
+priorities: [low, medium, high]
+next_id: 3

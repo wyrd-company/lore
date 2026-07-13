@@ -1,0 +1,5 @@
+project:
+  name: Lore
+  sources:
+    - task
+    - note
