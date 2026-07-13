@@ -26,6 +26,7 @@ type Record struct {
 	DocumentIdentity     string          `json:"documentIdentity"`
 	DocumentTitle        string          `json:"documentTitle"`
 	SourceType           string          `json:"sourceType"`
+	SourceInstance       string          `json:"sourceInstance"`
 	RevisionID           *uuid.UUID      `json:"revisionId,omitempty"`
 	RevisionIdentity     uuid.UUID       `json:"revisionIdentity"`
 	Body                 string          `json:"body"`
@@ -460,20 +461,21 @@ func (repository *Repository) Cleanup(ctx context.Context, projectID uuid.UUID, 
 }
 
 const recordSelect = `
-	SELECT a.id, a.project_id, a.document_id, d.source_identity, d.title, d.source_type,
+	SELECT a.id, a.project_id, a.document_id, d.source_identity, d.title, d.source_type, si.external_key,
 		a.revision_id, a.revision_identity, a.body, a.status::text, a.attributed_username,
 		a.updated_by, a.originating_operation, a.selector, a.selected_quote, a.quote_prefix,
 		a.quote_suffix, a.structural_location, a.original_content_hash, a.source_provenance,
 		a.copied_from_annotation_id, a.prior_target, a.resolved_at, a.resolved_by,
 		a.tombstoned_at, a.created_at, a.updated_at, a.change_sequence
 	FROM annotations a
-	JOIN documents d ON d.id = a.document_id AND d.project_id = a.project_id`
+	JOIN documents d ON d.id = a.document_id AND d.project_id = a.project_id
+	JOIN source_instances si ON si.id = d.source_instance_id AND si.project_id = d.project_id`
 
 type scanner interface{ Scan(...any) error }
 
 func scanRecord(row scanner, record *Record) error {
 	return row.Scan(&record.ID, &record.ProjectID, &record.DocumentID, &record.DocumentIdentity, &record.DocumentTitle,
-		&record.SourceType, &record.RevisionID, &record.RevisionIdentity, &record.Body, &record.Status,
+		&record.SourceType, &record.SourceInstance, &record.RevisionID, &record.RevisionIdentity, &record.Body, &record.Status,
 		&record.AttributedUsername, &record.UpdatedBy, &record.OriginatingOperation, &record.Selector,
 		&record.SelectedQuote, &record.QuotePrefix, &record.QuoteSuffix, &record.StructuralLocation,
 		&record.OriginalContentHash, &record.SourceProvenance, &record.CopiedFromAnnotation, &record.PriorTarget,

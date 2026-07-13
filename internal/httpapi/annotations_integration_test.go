@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -247,8 +246,4 @@ func doJSON(t *testing.T, method, endpoint, token string, body any, want int, re
 			t.Fatalf("decode %s: %v: %s", endpoint, err, contents)
 		}
 	}
-}
-
-func urlWithCursor(baseURL string, cursor int64) string {
-	return baseURL + "?after=" + url.QueryEscape(fmt.Sprint(cursor))
 }
