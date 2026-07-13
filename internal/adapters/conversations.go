@@ -17,16 +17,19 @@ import (
 type conversationData struct {
 	Provider   string
 	SessionID  string
+	AgentID    string
 	CWD        string
 	Repository string
 	Branch     string
 	Title      string
 	Messages   []rendering.Message
+	Warnings   []string
 }
 
 type ConversationScan struct {
 	Manifests []synchronization.Manifest
 	Skipped   int
+	Warnings  []string
 }
 
 func Conversations(provider, directory, sourceInstance string, mappings ProjectMappings, fallbackProject string) (ConversationScan, error) {
@@ -53,6 +56,7 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 		if err != nil {
 			return result, fmt.Errorf("parse conversation %q: %w", path, err)
 		}
+		result.Warnings = append(result.Warnings, conversation.Warnings...)
 		if len(conversation.Messages) == 0 || conversation.SessionID == "" {
 			continue
 		}
@@ -76,6 +80,9 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 		metadata := map[string]any{
 			"provider": provider, "sessionId": conversation.SessionID, "workingDirectory": conversation.CWD,
 			"title": conversation.Title, "messages": conversation.Messages,
+		}
+		if conversation.AgentID != "" {
+			metadata["agentId"] = conversation.AgentID
 		}
 		provenance := map[string]any{
 			"path": path, "provider": provider, "repository": conversation.Repository, "branch": conversation.Branch,
@@ -133,19 +140,26 @@ func conversationFiles(directory string) ([]string, error) {
 	return files, err
 }
 
-func scanJSONLines(source []byte, consume func([]byte) error) error {
+func scanJSONLines(source []byte, consume func(int, []byte) string) ([]string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(source))
 	scanner.Buffer(make([]byte, 64*1024), 32*1024*1024)
+	var warnings []string
+	lineNumber := 0
 	for scanner.Scan() {
+		lineNumber++
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		if err := consume(line); err != nil {
-			return err
+		if warning := consume(lineNumber, line); warning != "" {
+			warnings = append(warnings, warning)
 		}
 	}
-	return scanner.Err()
+	return warnings, scanner.Err()
+}
+
+func conversationWarning(path string, line int, message string) string {
+	return fmt.Sprintf("%s:%d: %s; record skipped", path, line, message)
 }
 
 func conversationTitle(messages []rendering.Message, fallback string) string {

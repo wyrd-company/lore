@@ -112,7 +112,7 @@ func collectFiles(paths []string) ([]string, error) {
 			if walkErr != nil {
 				return walkErr
 			}
-			if entry.IsDir() && (entry.Name() == ".git" || strings.HasPrefix(entry.Name(), ".")) && path != absolute {
+			if entry.IsDir() && entry.Name() == ".git" && path != absolute {
 				return filepath.SkipDir
 			}
 			if !entry.IsDir() && entry.Type().IsRegular() {

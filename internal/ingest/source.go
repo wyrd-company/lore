@@ -33,9 +33,9 @@ func (s Source) WatchPaths() []string {
 	return nil
 }
 
-func (s Source) Build(boundary synchronization.Boundary) ([]synchronization.Manifest, int, error) {
+func (s Source) Build(boundary synchronization.Boundary) ([]synchronization.Manifest, int, []string, error) {
 	if s.SourceInstance == "" {
-		return nil, 0, fmt.Errorf("source-instance is required")
+		return nil, 0, nil, fmt.Errorf("source-instance is required")
 	}
 	options := adapters.Options{Project: s.Project, SourceInstance: s.SourceInstance, Boundary: boundary}
 	switch s.Adapter {
@@ -60,24 +60,24 @@ func (s Source) Build(boundary synchronization.Boundary) ([]synchronization.Mani
 	case "conversations":
 		mappings, err := adapters.LoadProjectMappings(s.Mapping)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		scan, err := adapters.Conversations(s.Provider, s.Path, s.SourceInstance, mappings, s.FallbackProject)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		for index := range scan.Manifests {
 			scan.Manifests[index].Boundary = boundary
 		}
-		return scan.Manifests, scan.Skipped, nil
+		return scan.Manifests, scan.Skipped, scan.Warnings, nil
 	default:
-		return nil, 0, fmt.Errorf("unsupported adapter %q", s.Adapter)
+		return nil, 0, nil, fmt.Errorf("unsupported adapter %q", s.Adapter)
 	}
 }
 
-func one(manifest synchronization.Manifest, err error) ([]synchronization.Manifest, int, error) {
+func one(manifest synchronization.Manifest, err error) ([]synchronization.Manifest, int, []string, error) {
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	return []synchronization.Manifest{manifest}, 0, nil
+	return []synchronization.Manifest{manifest}, 0, nil, nil
 }

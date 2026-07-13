@@ -37,14 +37,14 @@ type codexPayload struct {
 func parseCodex(source []byte, path string) (conversationData, error) {
 	conversation := conversationData{Provider: "codex"}
 	sequence := 0
-	err := scanJSONLines(source, func(line []byte) error {
+	warnings, err := scanJSONLines(source, func(lineNumber int, line []byte) string {
 		var record codexRecord
 		if err := json.Unmarshal(line, &record); err != nil {
-			return err
+			return conversationWarning(path, lineNumber, "malformed JSON: "+err.Error())
 		}
 		var payload codexPayload
 		if err := json.Unmarshal(record.Payload, &payload); err != nil {
-			return err
+			return conversationWarning(path, lineNumber, "malformed Codex payload: "+err.Error())
 		}
 		switch record.Type {
 		case "session_meta":
@@ -59,7 +59,7 @@ func parseCodex(source []byte, path string) (conversationData, error) {
 			switch payload.Type {
 			case "message":
 				if payload.Role != "user" && payload.Role != "assistant" {
-					return nil
+					return ""
 				}
 				for _, block := range payload.Content {
 					if block.Type != "input_text" && block.Type != "output_text" || block.Text == "" || isBookkeepingMessage(block.Text) {
@@ -80,16 +80,44 @@ func parseCodex(source []byte, path string) (conversationData, error) {
 					})
 					sequence++
 				}
+			default:
+				if !knownCodexResponseType(payload.Type) {
+					return conversationWarning(path, lineNumber, fmt.Sprintf("unknown Codex response type %q", payload.Type))
+				}
+			}
+		default:
+			if !knownCodexRecordType(record.Type) {
+				return conversationWarning(path, lineNumber, fmt.Sprintf("unknown Codex record type %q", record.Type))
 			}
 		}
-		return nil
+		return ""
 	})
 	if err != nil {
 		return conversation, fmt.Errorf("parse Codex JSONL: %w", err)
 	}
+	conversation.Warnings = warnings
 	if conversation.SessionID == "" {
 		conversation.SessionID = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
 	conversation.Title = conversationTitle(conversation.Messages, "Codex conversation "+conversation.SessionID)
 	return conversation, nil
+}
+
+func knownCodexRecordType(recordType string) bool {
+	switch recordType {
+	case "event_msg", "inter_agent_communication_metadata", "turn_context", "world_state":
+		return true
+	default:
+		return false
+	}
+}
+
+func knownCodexResponseType(responseType string) bool {
+	switch responseType {
+	case "agent_message", "custom_tool_call", "custom_tool_call_output", "function_call", "function_call_output",
+		"tool_search_call", "tool_search_output", "web_search_call":
+		return true
+	default:
+		return false
+	}
 }

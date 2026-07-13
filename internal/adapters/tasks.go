@@ -35,10 +35,11 @@ type taskFrontMatter struct {
 
 func Tasks(boardPath string, options Options) (synchronization.Manifest, error) {
 	manifest := newManifest(options, "task")
-	tasksDirectory, err := taskDirectory(boardPath)
+	config, err := loadTaskConfig(boardPath)
 	if err != nil {
 		return manifest, err
 	}
+	tasksDirectory := filepath.Join(boardPath, filepath.Clean(config.TasksDirectory))
 	entries, err := os.ReadDir(tasksDirectory)
 	if err != nil {
 		return manifest, fmt.Errorf("read task directory: %w", err)
@@ -56,6 +57,15 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 		frontMatter, body, err := parseTask(source)
 		if err != nil {
 			return manifest, fmt.Errorf("parse task %q: %w", path, err)
+		}
+		if frontMatter.Status == "" {
+			frontMatter.Status = config.Defaults.Status
+		}
+		if frontMatter.Priority == "" {
+			frontMatter.Priority = config.Defaults.Priority
+		}
+		if frontMatter.Class == "" {
+			frontMatter.Class = config.Defaults.Class
 		}
 		identity := strconv.Itoa(frontMatter.ID)
 		dependencies := make([]string, 0, len(frontMatter.DependsOn))
@@ -84,22 +94,35 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 	return manifest, manifest.Validate()
 }
 
-func taskDirectory(boardPath string) (string, error) {
+type taskBoardConfig struct {
+	TasksDirectory string `yaml:"tasks_dir"`
+	Defaults       struct {
+		Status   string `yaml:"status"`
+		Priority string `yaml:"priority"`
+		Class    string `yaml:"class"`
+	} `yaml:"defaults"`
+}
+
+func loadTaskConfig(boardPath string) (taskBoardConfig, error) {
 	configPath := filepath.Join(boardPath, "config.yml")
 	contents, err := os.ReadFile(configPath)
 	if err != nil {
-		return "", fmt.Errorf("read kanban config: %w", err)
+		return taskBoardConfig{}, fmt.Errorf("read kanban config: %w", err)
 	}
-	var config struct {
-		TasksDirectory string `yaml:"tasks_dir"`
-	}
+	var config taskBoardConfig
 	if err := yaml.Unmarshal(contents, &config); err != nil {
-		return "", fmt.Errorf("parse kanban config: %w", err)
+		return taskBoardConfig{}, fmt.Errorf("parse kanban config: %w", err)
 	}
 	if config.TasksDirectory == "" {
 		config.TasksDirectory = "tasks"
 	}
-	return filepath.Join(boardPath, filepath.Clean(config.TasksDirectory)), nil
+	if config.Defaults.Status == "" {
+		config.Defaults.Status = "backlog"
+	}
+	if config.Defaults.Priority == "" {
+		config.Defaults.Priority = "medium"
+	}
+	return config, nil
 }
 
 func parseTask(source []byte) (taskFrontMatter, []byte, error) {
@@ -116,8 +139,8 @@ func parseTask(source []byte) (taskFrontMatter, []byte, error) {
 	if err := yaml.Unmarshal([]byte(normalized[4:end]), &frontMatter); err != nil {
 		return taskFrontMatter{}, nil, err
 	}
-	if frontMatter.ID <= 0 || frontMatter.Title == "" || frontMatter.Status == "" || frontMatter.Priority == "" {
-		return taskFrontMatter{}, nil, fmt.Errorf("task requires id, title, status, and priority")
+	if frontMatter.ID <= 0 || frontMatter.Title == "" {
+		return taskFrontMatter{}, nil, fmt.Errorf("task requires id and title")
 	}
 	return frontMatter, []byte(strings.TrimPrefix(normalized[end+5:], "\n")), nil
 }

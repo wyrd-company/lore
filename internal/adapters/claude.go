@@ -30,16 +30,16 @@ type claudeBlock struct {
 
 func parseClaude(source []byte, path string) (conversationData, error) {
 	conversation := conversationData{Provider: "claude", Branch: ""}
-	err := scanJSONLines(source, func(line []byte) error {
+	warnings, err := scanJSONLines(source, func(lineNumber int, line []byte) string {
 		var record claudeRecord
 		if err := json.Unmarshal(line, &record); err != nil {
-			return err
+			return conversationWarning(path, lineNumber, "malformed JSON: "+err.Error())
 		}
 		if conversation.SessionID == "" {
 			conversation.SessionID = record.SessionID
-			if record.AgentID != "" {
-				conversation.SessionID = record.AgentID
-			}
+		}
+		if conversation.AgentID == "" {
+			conversation.AgentID = record.AgentID
 		}
 		if conversation.CWD == "" {
 			conversation.CWD = record.CWD
@@ -47,24 +47,44 @@ func parseClaude(source []byte, path string) (conversationData, error) {
 		if conversation.Branch == "" {
 			conversation.Branch = record.GitBranch
 		}
-		if record.Type != "user" && record.Type != "assistant" || record.Message.Role != "user" && record.Message.Role != "assistant" {
-			return nil
+		if record.Type != "user" && record.Type != "assistant" {
+			if !knownClaudeRecordType(record.Type) {
+				return conversationWarning(path, lineNumber, fmt.Sprintf("unknown Claude record type %q", record.Type))
+			}
+			return ""
+		}
+		if record.Message.Role != "user" && record.Message.Role != "assistant" {
+			return ""
 		}
 		messages, err := claudeMessages(record)
 		if err != nil {
-			return err
+			return conversationWarning(path, lineNumber, err.Error())
 		}
 		conversation.Messages = append(conversation.Messages, messages...)
-		return nil
+		return ""
 	})
 	if err != nil {
 		return conversation, err
+	}
+	conversation.Warnings = warnings
+	if conversation.SessionID == "" {
+		conversation.SessionID = conversation.AgentID
 	}
 	if conversation.SessionID == "" {
 		conversation.SessionID = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
 	conversation.Title = conversationTitle(conversation.Messages, "Claude conversation "+conversation.SessionID)
 	return conversation, nil
+}
+
+func knownClaudeRecordType(recordType string) bool {
+	switch recordType {
+	case "ai-title", "attachment", "bridge-session", "custom-title", "file-history-snapshot", "fork-context-ref",
+		"frame-link", "last-prompt", "mode", "permission-mode", "pr-link", "queue-operation", "result", "started", "system":
+		return true
+	default:
+		return false
+	}
 }
 
 func claudeMessages(record claudeRecord) ([]rendering.Message, error) {

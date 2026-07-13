@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,54 @@ import (
 
 func fixtureOptions(instance string) Options {
 	return Options{Project: "lore", SourceInstance: instance, Boundary: synchronization.BoundaryComplete}
+}
+
+func TestTasksUsesKanbanDefaultsWhenTaskOmitsStatusAndPriority(t *testing.T) {
+	board := t.TempDir()
+	if err := os.Mkdir(filepath.Join(board, "cards"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := []byte("tasks_dir: cards\ndefaults:\n  status: ready\n  priority: high\n  class: standard\n")
+	if err := os.WriteFile(filepath.Join(board, "config.yml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	task := []byte("---\nid: 7\ntitle: Defaulted task\n---\n\nTask body.\n")
+	if err := os.WriteFile(filepath.Join(board, "cards", "7-defaulted.md"), task, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Tasks(board, fixtureOptions("tasks"))
+	if err != nil {
+		t.Fatalf("read task using board defaults: %v", err)
+	}
+	if len(manifest.Documents) != 1 {
+		t.Fatalf("documents = %d", len(manifest.Documents))
+	}
+	metadata := string(manifest.Documents[0].Metadata)
+	if !strings.Contains(metadata, `"status":"ready"`) || !strings.Contains(metadata, `"priority":"high"`) || !strings.Contains(metadata, `"class":"standard"`) {
+		t.Fatalf("defaults missing from task metadata: %s", metadata)
+	}
+}
+
+func TestTasksFallsBackToKanbanDefaultValues(t *testing.T) {
+	board := t.TempDir()
+	if err := os.Mkdir(filepath.Join(board, "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(board, "config.yml"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	task := []byte("---\nid: 8\ntitle: Fallback task\n---\n")
+	if err := os.WriteFile(filepath.Join(board, "tasks", "8-fallback.md"), task, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Tasks(board, fixtureOptions("tasks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := string(manifest.Documents[0].Metadata)
+	if !strings.Contains(metadata, `"status":"backlog"`) || !strings.Contains(metadata, `"priority":"medium"`) {
+		t.Fatalf("fallback defaults missing: %s", metadata)
+	}
 }
 
 func TestTasksReadsKanbanBoard(t *testing.T) {
@@ -83,5 +132,28 @@ func TestRepositoryRendersMarkdownAndYAML(t *testing.T) {
 	}
 	if !renderers["markdown"] || !renderers["yaml"] {
 		t.Fatalf("renderers = %#v", renderers)
+	}
+}
+
+func TestRepositoryIncludesDotDirectoriesExceptGitMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".github", "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte("name: CI\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("private git metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := collectFiles([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || !strings.Contains(filepath.ToSlash(files[0]), "/.github/workflows/ci.yml") {
+		t.Fatalf("collected files = %#v", files)
 	}
 }

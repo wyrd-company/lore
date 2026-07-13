@@ -124,9 +124,12 @@ func (r *Runner) upload(ctx context.Context, args []string) error {
 	if adapter != "repository" && len(paths) != 1 {
 		return fmt.Errorf("upload %s accepts exactly one source path", adapter)
 	}
-	manifests, skipped, err := source.Build(boundary)
+	manifests, skipped, warnings, err := source.Build(boundary)
 	if err != nil {
 		return err
+	}
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintf(r.ErrOut, "warning: %s\n", warning)
 	}
 	if len(manifests) == 0 {
 		_, _ = fmt.Fprintf(r.Out, "No assigned documents to upload (skipped sessions: %d).\n", skipped)
@@ -260,8 +263,8 @@ func (r *Runner) usage() {
 usage:
   lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
   lore watch --config <path>
-	  lore projects create --slug <slug> --name <name>
-	  lore annotations export --project <project> [--after <cursor>]
+  lore projects create --slug <slug> --name <name>
+  lore annotations export --project <project> [--after <cursor>]
   lore briefings <show-css|show-skill|write-css|write-skill|contract>
   lore migrate
   lore version`)+"\n")

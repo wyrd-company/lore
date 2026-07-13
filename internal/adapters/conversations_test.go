@@ -134,3 +134,43 @@ func TestConversationScanEmitsEmptyManifestForKnownProject(t *testing.T) {
 		t.Fatalf("expected empty known-project manifest, got %#v", scan)
 	}
 }
+
+func TestClaudeConversationSkipsMalformedAndUnknownRecordsWithWarnings(t *testing.T) {
+	source := []byte(strings.Join([]string{
+		`{"type":"user","sessionId":"canonical-session","agentId":"auxiliary-agent","uuid":"message-1","message":{"role":"user","content":"Keep this message"}}`,
+		`not-json`,
+		`{"type":"future-record","sessionId":"canonical-session"}`,
+	}, "\n"))
+	conversation, err := parseClaude(source, "claude.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conversation.SessionID != "canonical-session" || conversation.AgentID != "auxiliary-agent" {
+		t.Fatalf("session identity = %q, agent identity = %q", conversation.SessionID, conversation.AgentID)
+	}
+	if len(conversation.Messages) != 1 || conversation.Messages[0].Markdown != "Keep this message" {
+		t.Fatalf("messages = %#v", conversation.Messages)
+	}
+	if len(conversation.Warnings) != 2 || !strings.Contains(conversation.Warnings[0], "claude.jsonl:2") || !strings.Contains(conversation.Warnings[1], "future-record") {
+		t.Fatalf("warnings = %#v", conversation.Warnings)
+	}
+}
+
+func TestCodexConversationSkipsMalformedAndUnknownRecordsWithWarnings(t *testing.T) {
+	source := []byte(strings.Join([]string{
+		`{"type":"session_meta","payload":{"id":"codex-session","cwd":"/workspaces/tools/lore"}}`,
+		`{"type":"response_item","payload":{"type":"message","id":"message-1","role":"user","content":[{"type":"input_text","text":"Keep this too"}]}}`,
+		`{"type":"response_item","payload":`,
+		`{"type":"future-record","payload":{}}`,
+	}, "\n"))
+	conversation, err := parseCodex(source, "codex.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conversation.Messages) != 1 || conversation.Messages[0].Markdown != "Keep this too" {
+		t.Fatalf("messages = %#v", conversation.Messages)
+	}
+	if len(conversation.Warnings) != 2 || !strings.Contains(conversation.Warnings[0], "codex.jsonl:3") || !strings.Contains(conversation.Warnings[1], "future-record") {
+		t.Fatalf("warnings = %#v", conversation.Warnings)
+	}
+}
