@@ -112,7 +112,7 @@ The published image is `ghcr.io/wyrd-company/lore`. It contains both
 | `PUBLIC_BASE_URL` | server, CLI fallback | Browser-visible Lore origin |
 | `LORE_LISTEN_ADDRESS` | server | HTTP bind address; defaults to `:8080` |
 | `LORE_SERVER_URL` | CLI, watcher | Server URL; overrides `PUBLIC_BASE_URL` |
-| `PROJECT` | CLI | Optional project flag/fallback value |
+| `LORE_PROJECT` | CLI | Optional project flag/fallback value |
 
 ### Compose deployment with watchers
 
@@ -352,7 +352,7 @@ lore upload conversations --source-instance codex --provider codex --complete \
 ```
 
 The mapping file supports exact session IDs, longest working-directory prefix
-matches, repository mappings, and an explicitly enabled `PROJECT` fallback:
+matches, repository mappings, and an explicitly enabled `LORE_PROJECT` fallback:
 
 ```yaml
 sessions:

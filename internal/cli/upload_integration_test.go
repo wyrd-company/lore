@@ -23,6 +23,8 @@ import (
 )
 
 func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
+	t.Setenv("LORE_PROJECT", "lore")
+	t.Setenv("PROJECT", "other")
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not set; real PostgreSQL integration test skipped")
@@ -65,12 +67,17 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	var output bytes.Buffer
 	runner := New(&output, &output)
 	fixtures := filepath.Join("..", "adapters", "testdata")
+	mappingPath := filepath.Join(t.TempDir(), "projects.yml")
+	if err := os.WriteFile(mappingPath, []byte("allowProjectFallback: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	uploads := [][]string{
-		{"upload", "tasks", "--project", "lore", "--source-instance", "kanban", "--complete", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "kanban")},
+		{"upload", "tasks", "--source-instance", "kanban", "--complete", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "kanban")},
 		{"upload", "notes", "--project", "lore", "--source-instance", "mnemonic", "--complete", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "notes")},
 		{"upload", "briefing", "--project", "lore", "--source-instance", "architecture", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "briefing", "architecture.html")},
 		{"upload", "repository", "--project", "lore", "--source-instance", "fixture-repository", "--repository", "wyrd-company/fixture", "--branch", "main", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "repository")},
 		{"upload", "conversations", "--source-instance", "codex", "--provider", "codex", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "conversations", "codex")},
+		{"upload", "conversations", "--source-instance", "claude-fallback", "--provider", "claude", "--mapping", mappingPath, "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "conversations", "unassigned")},
 	}
 	for _, arguments := range uploads {
 		if err := runner.Run(ctx, arguments); err != nil {
@@ -86,7 +93,7 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	if err := row.Scan(&documents, &revisions, &tags, &relationships); err != nil {
 		t.Fatal(err)
 	}
-	if documents != 7 || revisions != 7 || tags == 0 || relationships != 1 {
+	if documents != 8 || revisions != 8 || tags == 0 || relationships != 1 {
 		t.Fatalf("unexpected persistence: documents=%d revisions=%d tags=%d relationships=%d", documents, revisions, tags, relationships)
 	}
 	if !strings.Contains(output.String(), "2 created") {
@@ -106,7 +113,7 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		}
 		counts[sourceType] = count
 	}
-	want := map[string]int{"task": 2, "note": 1, "briefing": 1, "repository": 2, "conversation": 1}
+	want := map[string]int{"task": 2, "note": 1, "briefing": 1, "repository": 2, "conversation": 2}
 	for sourceType, count := range want {
 		if counts[sourceType] != count {
 			t.Fatalf("%s documents = %d, want %d (all: %#v)", sourceType, counts[sourceType], count, counts)
@@ -117,13 +124,13 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		Projects []browse.ProjectSummary `json:"projects"`
 	}
 	getJSON(t, server.URL+"/api/projects", http.StatusOK, &projects)
-	if len(projects.Projects) != 2 || projects.Projects[0].DocumentCount != 7 {
+	if len(projects.Projects) != 2 || projects.Projects[0].DocumentCount != 8 {
 		t.Fatalf("project listing = %#v", projects.Projects)
 	}
 	var listing browse.BrowseResponse
 	getJSON(t, server.URL+"/api/projects/lore/browse", http.StatusOK, &listing)
 	if len(listing.Tasks) != 2 || len(listing.Notes) != 1 || len(listing.Briefings) != 1 ||
-		len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 2 || len(listing.Conversations) != 1 {
+		len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 2 || len(listing.Conversations) != 2 {
 		t.Fatalf("browse listing = %#v", listing)
 	}
 	var taskID uuid.UUID

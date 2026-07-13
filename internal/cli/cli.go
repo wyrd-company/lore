@@ -91,7 +91,7 @@ func (r *Runner) upload(ctx context.Context, args []string) error {
 	adapter := args[0]
 	flags := flag.NewFlagSet("upload "+adapter, flag.ContinueOnError)
 	flags.SetOutput(r.ErrOut)
-	project := flags.String("project", os.Getenv("PROJECT"), "Lore project slug")
+	project := flags.String("project", os.Getenv("LORE_PROJECT"), "Lore project slug")
 	sourceInstance := flags.String("source-instance", "", "stable source instance name")
 	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
 	token := flags.String("token", os.Getenv("LORE_INGEST_TOKEN"), "Lore ingest token")
@@ -101,7 +101,7 @@ func (r *Runner) upload(ctx context.Context, args []string) error {
 	branch := flags.String("branch", "", "repository branch override")
 	provider := flags.String("provider", "", "conversation provider (claude or codex)")
 	mapping := flags.String("mapping", "", "conversation project mapping YAML")
-	fallback := flags.String("fallback-project", os.Getenv("PROJECT"), "opt-in conversation project fallback")
+	fallback := flags.String("fallback-project", os.Getenv("LORE_PROJECT"), "opt-in conversation project fallback")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (r *Runner) upload(ctx context.Context, args []string) error {
 		return fmt.Errorf("upload %s requires a source path", adapter)
 	}
 	if adapter != "conversations" && *project == "" {
-		return fmt.Errorf("--project or PROJECT is required")
+		return fmt.Errorf("--project or LORE_PROJECT is required")
 	}
 	boundary := synchronization.BoundaryPartial
 	if *complete {
@@ -195,7 +195,7 @@ func (r *Runner) annotations(ctx context.Context, args []string) error {
 	}
 	flags := flag.NewFlagSet("annotations export", flag.ContinueOnError)
 	flags.SetOutput(r.ErrOut)
-	project := flags.String("project", os.Getenv("PROJECT"), "exactly one Lore project slug")
+	project := flags.String("project", os.Getenv("LORE_PROJECT"), "exactly one Lore project slug")
 	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
 	after := flags.Int64("after", 0, "incremental update cursor; zero exports a complete snapshot")
 	output := flags.String("output", "-", "output path, or - for standard output")
@@ -204,7 +204,7 @@ func (r *Runner) annotations(ctx context.Context, args []string) error {
 		return err
 	}
 	if *project == "" {
-		return fmt.Errorf("--project or PROJECT is required")
+		return fmt.Errorf("--project or LORE_PROJECT is required")
 	}
 	if *after < 0 {
 		return fmt.Errorf("--after must be non-negative")

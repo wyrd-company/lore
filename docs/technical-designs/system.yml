@@ -68,7 +68,7 @@ proposed-design:
     retrieval or ranking.
 
     The command-line application resolves the project from an explicit `--project`
-    argument and otherwise uses the `PROJECT` environment variable. Upload manifests
+    argument and otherwise uses the `LORE_PROJECT` environment variable. Upload manifests
     contain the resolved project explicitly. Annotation downloads require a project
     and never combine annotations from several projects.
   content-model: |-
@@ -219,7 +219,7 @@ proposed-design:
     1. An explicit session mapping.
     2. The longest matching working-directory prefix in the mounted mapping file.
     3. Git repository metadata carried by the session record.
-    4. An explicitly enabled `PROJECT` fallback.
+    4. An explicitly enabled `LORE_PROJECT` fallback.
 
     A session without sufficient project evidence remains unassigned and is not
     uploaded. The mapping file can be mounted consistently into devcontainers and
