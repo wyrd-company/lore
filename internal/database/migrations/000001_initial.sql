@@ -128,6 +128,7 @@ CREATE TABLE document_tags (
 );
 
 CREATE TYPE annotation_status AS ENUM ('open', 'resolved', 'dismissed');
+CREATE SEQUENCE annotation_change_sequence;
 
 CREATE TABLE annotations (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -152,7 +153,7 @@ CREATE TABLE annotations (
     tombstoned_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    change_sequence bigint GENERATED ALWAYS AS IDENTITY,
+    change_sequence bigint NOT NULL DEFAULT nextval('annotation_change_sequence'),
     FOREIGN KEY (project_id, document_id) REFERENCES documents(project_id, id) ON DELETE CASCADE,
     FOREIGN KEY (document_id, revision_id) REFERENCES revisions(document_id, id) ON DELETE RESTRICT,
     CHECK ((tombstoned_at IS NULL AND revision_id IS NOT NULL) OR tombstoned_at IS NOT NULL),
@@ -163,7 +164,14 @@ CREATE INDEX annotations_project_status_idx ON annotations (project_id, status);
 CREATE INDEX annotations_project_cursor_idx ON annotations (project_id, change_sequence);
 CREATE INDEX documents_project_current_idx ON documents (project_id, source_type) WHERE deleted_at IS NULL;
 
-CREATE TABLE schema_migrations (
-    version bigint PRIMARY KEY,
-    applied_at timestamptz NOT NULL DEFAULT now()
-);
+CREATE FUNCTION touch_annotation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.updated_at = now();
+    NEW.change_sequence = nextval('annotation_change_sequence');
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER annotations_touch_before_update
+BEFORE UPDATE ON annotations
+FOR EACH ROW EXECUTE FUNCTION touch_annotation();
