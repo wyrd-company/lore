@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/wyrd-company/lore/internal/annotations"
 	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/embedding"
 	"github.com/wyrd-company/lore/internal/projects"
@@ -24,6 +25,7 @@ type Server struct {
 	sync        *synchronization.Repository
 	search      *retrieval.Repository
 	browse      *browse.Repository
+	annotations *annotations.Repository
 	projects    *projects.Repository
 	embedder    *embedding.Client
 	ingestToken string
@@ -36,7 +38,7 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 		embedder = embedders[0]
 	}
 	server := &Server{
-		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), projects: projects.NewRepository(pool), embedder: embedder,
+		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), projects: projects.NewRepository(pool), annotations: annotations.NewRepository(pool), embedder: embedder,
 		ingestToken: ingestToken, adminToken: adminToken,
 	}
 	mux := http.NewServeMux()
@@ -48,12 +50,17 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 	mux.Handle("GET /api/projects/{project}/search", projectScope(pool, http.HandlerFunc(server.searchProject)))
 	mux.Handle("GET /api/projects/{project}/documents/{document}", projectScope(pool, http.HandlerFunc(server.documentDetail)))
 	mux.Handle("GET /api/projects/{project}/documents/{document}/revisions", projectScope(pool, http.HandlerFunc(server.documentRevisions)))
+	mux.Handle("GET /api/projects/{project}/documents/{document}/revisions/{revision}", projectScope(pool, http.HandlerFunc(server.documentRevision)))
 
 	// Annotation boundary.
-	mux.Handle("GET /api/projects/{project}/annotations", projectScope(pool, http.HandlerFunc(server.stubAnnotations)))
-	mux.Handle("POST /api/projects/{project}/annotations", projectScope(pool, http.HandlerFunc(server.stubAnnotations)))
-	mux.Handle("PATCH /api/projects/{project}/annotations/{annotation}", projectScope(pool, http.HandlerFunc(server.stubAnnotations)))
-	mux.Handle("GET /api/projects/{project}/annotations/export", projectScope(pool, http.HandlerFunc(server.stubAnnotations)))
+	mux.Handle("GET /api/projects/{project}/annotations", projectScope(pool, http.HandlerFunc(server.listAnnotations)))
+	mux.Handle("POST /api/projects/{project}/annotations", projectScope(pool, http.HandlerFunc(server.createAnnotation)))
+	mux.Handle("GET /api/projects/{project}/annotations/export", projectScope(pool, http.HandlerFunc(server.exportAnnotations)))
+	mux.Handle("GET /api/projects/{project}/annotations/{annotation}", projectScope(pool, http.HandlerFunc(server.getAnnotation)))
+	mux.Handle("PATCH /api/projects/{project}/annotations/{annotation}", projectScope(pool, http.HandlerFunc(server.updateAnnotation)))
+	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/copy", projectScope(pool, http.HandlerFunc(server.copyAnnotation)))
+	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/move", projectScope(pool, http.HandlerFunc(server.moveAnnotation)))
+	mux.Handle("GET /api/projects/{project}/annotations/{annotation}/events", projectScope(pool, http.HandlerFunc(server.annotationEvents)))
 
 	// Synchronization boundary, protected by the ingest credential.
 	mux.Handle("POST /api/projects/{project}/synchronizations",
@@ -61,7 +68,7 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 
 	// Administrative operations have their own credential and remain project scoped.
 	mux.Handle("POST /api/projects/{project}/admin/cleanup",
-		bearerToken(adminToken, projectScope(pool, http.HandlerFunc(server.stubAdmin))))
+		bearerToken(adminToken, projectScope(pool, http.HandlerFunc(server.cleanupRevisions))))
 
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /health/ready", server.ready)
@@ -114,25 +121,6 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) stubAnnotations(w http.ResponseWriter, r *http.Request) {
-	writeStub(w, r, "annotations")
-}
-
-func (s *Server) stubAdmin(w http.ResponseWriter, r *http.Request) {
-	writeStub(w, r, "administration")
-}
-
-func writeStub(w http.ResponseWriter, r *http.Request, boundary string) {
-	project, ok := projectFromContext(r.Context())
-	if !ok {
-		writeProblem(w, http.StatusInternalServerError, "project scope missing")
-		return
-	}
-	writeJSON(w, http.StatusNotImplemented, map[string]string{
-		"boundary": boundary, "project": project.Slug, "status": "planned for a later milestone",
-	})
 }
 
 func writeProblem(w http.ResponseWriter, status int, detail string) {

@@ -94,6 +94,28 @@ func (s *Server) documentRevisions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"documentId": documentID, "revisions": revisions})
 }
 
+func (s *Server) documentRevision(w http.ResponseWriter, r *http.Request) {
+	project, documentID, ok := scopedDocument(w, r)
+	if !ok {
+		return
+	}
+	revisionID, err := uuid.Parse(r.PathValue("revision"))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "revision must be a UUID")
+		return
+	}
+	revision, err := s.browse.Revision(r.Context(), project.ID, documentID, revisionID)
+	if browse.IsNotFound(err) {
+		writeProblem(w, http.StatusNotFound, "revision not found")
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError, "revision retrieval failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, revision)
+}
+
 func scopedDocument(w http.ResponseWriter, r *http.Request) (Project, uuid.UUID, bool) {
 	project, ok := projectFromContext(r.Context())
 	if !ok {

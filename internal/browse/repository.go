@@ -87,6 +87,18 @@ type RevisionSummary struct {
 	AnnotationCount int       `json:"annotationCount"`
 }
 
+type RevisionDetail struct {
+	RevisionSummary
+	DocumentID      uuid.UUID       `json:"documentId"`
+	DocumentTitle   string          `json:"documentTitle"`
+	SourceType      string          `json:"sourceType"`
+	SourceIdentity  string          `json:"sourceIdentity"`
+	NormalizedText  string          `json:"normalizedText"`
+	RenderedContent string          `json:"renderedContent"`
+	Metadata        json.RawMessage `json:"metadata"`
+	Provenance      json.RawMessage `json:"provenance"`
+}
+
 type DocumentDetail struct {
 	DocumentSummary
 	ContentHash     string            `json:"contentHash"`
@@ -248,6 +260,24 @@ func (r *Repository) Revisions(ctx context.Context, projectID, documentID uuid.U
 		result = append(result, revision)
 	}
 	return result, rows.Err()
+}
+
+func (r *Repository) Revision(ctx context.Context, projectID, documentID, revisionID uuid.UUID) (RevisionDetail, error) {
+	var revision RevisionDetail
+	err := r.pool.QueryRow(ctx, `
+		SELECT r.id, r.content_hash, r.renderer, r.created_at, r.id = d.current_revision_id,
+			(SELECT count(*) FROM chunks c WHERE c.revision_id = r.id),
+			(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id = c.id WHERE c.revision_id = r.id),
+			(SELECT count(*) FROM annotations a WHERE a.revision_id = r.id),
+			d.id, d.title, d.source_type, d.source_identity, r.normalized_text, r.rendered_content, r.metadata, r.provenance
+		FROM documents d
+		JOIN revisions r ON r.document_id = d.id AND r.project_id = d.project_id
+		WHERE d.project_id = $1 AND d.id = $2 AND r.id = $3`, projectID, documentID, revisionID).
+		Scan(&revision.ID, &revision.ContentHash, &revision.Renderer, &revision.CreatedAt, &revision.Current,
+			&revision.ChunkCount, &revision.EmbeddedChunks, &revision.AnnotationCount, &revision.DocumentID,
+			&revision.DocumentTitle, &revision.SourceType, &revision.SourceIdentity, &revision.NormalizedText,
+			&revision.RenderedContent, &revision.Metadata, &revision.Provenance)
+	return revision, err
 }
 
 func (r *Repository) project(ctx context.Context, projectID uuid.UUID) (ProjectSummary, error) {
