@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -65,13 +66,21 @@ func (s *Server) synchronize(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid synchronization manifest")
 		return
 	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "synchronization request must contain one manifest")
+		return
+	}
 	if manifest.Project != project.Slug {
 		writeProblem(w, http.StatusBadRequest, "manifest project does not match route project")
 		return
 	}
+	if err := manifest.Validate(); err != nil {
+		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 	result, err := s.sync.Apply(r.Context(), project.ID, manifest)
 	if err != nil {
-		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
+		writeProblem(w, http.StatusInternalServerError, "synchronization failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

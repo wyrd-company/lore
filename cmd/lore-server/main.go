@@ -63,6 +63,8 @@ func serve(cfg config.Config) error {
 	server := &http.Server{
 		Addr: cfg.ListenAddress, Handler: httpapi.New(pool, cfg.IngestToken, cfg.AdminToken),
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()

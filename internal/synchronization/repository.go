@@ -31,6 +31,13 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 			tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
 		}
 	}()
+	var projectSlug string
+	if err = tx.QueryRow(ctx, `SELECT slug FROM projects WHERE id = $1`, projectID).Scan(&projectSlug); err != nil {
+		return result, fmt.Errorf("resolve manifest project: %w", err)
+	}
+	if projectSlug != manifest.Project {
+		return result, fmt.Errorf("manifest project %q does not match database project %q", manifest.Project, projectSlug)
+	}
 
 	var sourceInstanceID uuid.UUID
 	err = tx.QueryRow(ctx, `

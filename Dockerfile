@@ -18,8 +18,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/wyrd-company/
 
 FROM alpine:3.22 AS server
 RUN apk add --no-cache ca-certificates
+RUN addgroup -S lore && adduser -S -G lore lore
 COPY --from=go-build /out/lore-server /usr/local/bin/lore-server
 COPY --from=go-build /out/lore /usr/local/bin/lore
 EXPOSE 8080/tcp
+USER lore
+HEALTHCHECK --interval=10s --timeout=3s --retries=6 CMD wget -q -O /dev/null http://127.0.0.1:8080/health/live || exit 1
 ENTRYPOINT ["/usr/local/bin/lore-server"]
 CMD ["serve"]

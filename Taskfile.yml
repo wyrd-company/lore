@@ -27,6 +27,9 @@ tasks:
     sources:
       - web/src/**/*
       - web/index.html
+      - web/package.json
+      - web/package-lock.json
+      - web/tsconfig*.json
       - web/vite.config.ts
       - design/site.css
     generates:

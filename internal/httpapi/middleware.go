@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,7 +20,11 @@ func projectScope(pool *pgxpool.Pool, next http.Handler) http.Handler {
 		var project Project
 		if err := pool.QueryRow(r.Context(), `SELECT id, slug, name FROM projects WHERE slug = $1`, slug).
 			Scan(&project.ID, &project.Slug, &project.Name); err != nil {
-			writeProblem(w, http.StatusNotFound, "project not found")
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeProblem(w, http.StatusNotFound, "project not found")
+			} else {
+				writeProblem(w, http.StatusServiceUnavailable, "project store unavailable")
+			}
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(withProject(r.Context(), project)))
