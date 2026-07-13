@@ -32,11 +32,13 @@ The HTTP API has three project-scoped boundaries:
 - `/api/projects/{project}/annotations`
 - `POST /api/projects/{project}/synchronizations`
 
-Browse and annotation handlers are API shells. Synchronization implements the
+Annotation handlers remain API shells. Browse and hybrid search are implemented,
+and synchronization provides the
 transactional manifest core: source-instance ownership, complete versus partial
 manifests, immutable revisions, content-hash idempotency, and complete-manifest
-deletion isolation. Ingest and administrative routes require their respective
-bearer tokens.
+deletion isolation. New revisions are chunked and keyword-indexed transactionally;
+embeddings are completed asynchronously. Ingest and administrative routes require
+their respective bearer tokens.
 
 ## Local development
 
@@ -110,10 +112,7 @@ The ingest endpoint accepts a manifest shaped as follows:
       "renderedContent": "<p>Rendered content</p>",
       "renderer": "markdown",
       "metadata": {},
-      "provenance": {},
-      "chunks": [
-        {"ordinal": 0, "normalizedText": "Searchable text", "structuralLocation": {}}
-      ]
+      "provenance": {}
     }
   ]
 }
@@ -122,6 +121,71 @@ The ingest endpoint accepts a manifest shaped as follows:
 A `complete` manifest marks documents absent from that same source instance as
 deleted. A `partial` manifest never deletes siblings. Matching current content
 hashes do not create revisions or chunks.
+
+## Search indexing and retrieval
+
+Lore divides each new revision into bounded 220-word chunks with a 40-word
+overlap. Chunk locations retain word offsets; conversation chunks additionally
+retain provider message identifiers, message order, role, and thinking status.
+The server constructs chunks itself rather than accepting client-generated
+index data.
+
+PostgreSQL stores a weighted `tsvector` for each chunk:
+
+- document titles have the strongest weight;
+- task and note tags share that strongest weight;
+- ordinary content, including conversation user and assistant messages, uses
+  normal body weight;
+- assistant thinking and source metadata use a lower weight.
+
+Exact tags, source type, repository, branch, and dates remain structured
+filters. Search first resolves the project, independently selects keyword and
+vector candidates inside that project, combines chunk ranks using reciprocal
+rank fusion, and groups matching chunks under their documents.
+
+Embeddings use `voyage/voyage-4` through Vercel AI Gateway at exactly 1,024
+dimensions. Synchronization commits chunks and durable `embedding_jobs` rows
+without calling the gateway. The server worker batches jobs, retries transient
+failures with bounded backoff, and stores one pgvector row per chunk. A gateway
+outage therefore leaves keyword search available and the failed vectors queued
+for later backfill. Server startup also chunks current revisions created by an
+older Lore version before starting the worker.
+
+## Browse and search API
+
+The read API is public within Lore's network boundary and always scopes document
+retrieval before accessing content:
+
+```text
+GET /api/projects
+GET /api/projects/{project}/browse
+GET /api/projects/{project}/documents/{document-uuid}
+GET /api/projects/{project}/documents/{document-uuid}/revisions
+GET /api/projects/{project}/search?q=...
+```
+
+The browse response includes source instances, type counts, tags, tasks, notes,
+briefings, repository documents grouped by repository and branch, conversations,
+and per-document embedding coverage. Document detail includes current rendered
+content, normalized text, metadata, provenance, tags, revision history, and task
+dependencies and dependents in both directions.
+
+Search accepts repeatable or comma-separated filters:
+
+```text
+sourceType=task,note
+repository=wyrd-company/lore
+branch=main
+tag=search
+createdFrom=2026-01-01T00:00:00Z
+createdTo=2026-12-31T23:59:59Z
+limit=20
+```
+
+Results expose the fused document score and each matching chunk's snippet,
+structural location, keyword/vector ranks, component scores, and fused score.
+When query embedding is unavailable, the response includes a warning and returns
+keyword-ranked results instead of failing the request.
 
 ## Source uploads
 
