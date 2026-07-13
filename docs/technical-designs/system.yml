@@ -1,0 +1,320 @@
+$schema: https://refinery.systems/ontology/technical-design
+relationships: {}
+objective: >-
+  Define Lore as a locally hosted, multi-project web application and command-line
+  client for ingesting, rendering, searching, annotating, and synchronizing trusted
+  project knowledge while local source files remain authoritative.
+background:
+  current-design: >-
+    Project knowledge exists in local kanban boards, Mnemonic notes, HTML briefings,
+    repository documents, and Codex and Claude session records. Lore provides a
+    shared, remotely accessible projection of those sources without introducing an
+    editing path back into them.
+  problems:
+    - Project knowledge is distributed across source-specific directories and formats.
+    - Local sources are not available through one project-scoped search interface.
+    - Review comments and annotations need a shared store with source provenance.
+    - Agent session records require provider-specific normalization before they read as conversations.
+design-challenges:
+  stable-source-identity: >-
+    Incremental synchronization needs identities that remain stable across uploads
+    while isolating independent projects, repositories, branches, and source mounts.
+  annotated-content-replacement: >-
+    Current content needs to replace unannotated prior content without detaching open
+    annotations from the exact content on which they were authored.
+  heterogeneous-rendering: >-
+    Tasks, Markdown notes, trusted HTML briefings, YAML documents, and agent sessions
+    require different renderers while sharing navigation, search, and annotation
+    behavior.
+  hybrid-retrieval: >-
+    Keyword and vector results need a single relevance ordering without allowing
+    results from another project into the candidate set.
+  filesystem-synchronization: >-
+    Long-running upload containers need to detect changes in mounted host directories
+    despite bursty or lost filesystem events.
+  session-attribution: >-
+    Codex session storage is not organized by project, so ingestion needs to derive a
+    project from session metadata and an explicit path mapping.
+proposed-design:
+  high-level-overview: |-
+    Lore is a modular monolith composed of a Go server, a React web application, a Go
+    command-line application, and PostgreSQL with pgvector. The server exposes the web
+    interface and an HTTP API. PostgreSQL stores normalized content, annotations,
+    keyword indexes, and vector embeddings. The command-line application uploads
+    project sources, watches mounted directories, downloads annotations, and exposes
+    briefing-authoring resources.
+
+    Docker Compose runs the server and PostgreSQL. The command-line application is
+    also published as a container image so one or more watcher services can run with
+    project source directories mounted read-only. Cloudflare Tunnel and Cloudflare
+    Zero Trust provide network exposure and access control outside Lore.
+  system-components: |-
+    The system contains these deployable and logical components:
+
+    - `lore-server` serves the React application and project-scoped HTTP API.
+    - `lore` performs ad-hoc uploads, continuous synchronization, annotation exports,
+      and briefing resource discovery.
+    - PostgreSQL stores projects, source instances, documents, revisions, chunks,
+      relationships, tags, annotations, and vector embeddings.
+    - Vercel AI Gateway supplies embeddings from the fixed `voyage/voyage-4` model.
+    - Source adapters convert each supported source format into Lore's normalized
+      ingestion representation.
+    - Renderers produce task pages, Markdown pages, trusted briefing bodies,
+      structured YAML pages, and conversation pages.
+  project-boundary: |-
+    Every source instance, document, revision, chunk, tag association, relationship,
+    and annotation belongs to exactly one project. Every browse and search operation
+    carries a project identifier, and the server applies that identifier before data
+    retrieval or ranking.
+
+    The command-line application resolves the project from an explicit `--project`
+    argument and otherwise uses the `PROJECT` environment variable. Upload manifests
+    contain the resolved project explicitly. Annotation downloads require a project
+    and never combine annotations from several projects.
+  content-model: |-
+    A project owns source instances. A source instance represents one independently
+    synchronized input, such as a task directory, note directory, briefing upload,
+    repository and branch, or session directory.
+
+    A document is the stable logical identity of one source item. A revision is an
+    immutable representation of that document at one content hash. Each revision
+    stores normalized text, renderer-specific content, structured metadata, source
+    provenance, and search chunks. Documents point to their current revision.
+
+    Type-specific metadata includes:
+
+    - Tasks: task identifier, status, dependencies, and tags.
+    - Notes: note identifier, source path, and tags.
+    - Briefings: filename, body HTML, and stylesheet contract identity.
+    - Repository documents: repository identity, branch, path, and source format.
+    - Conversations: provider, session identifier, working directory, title, and
+      ordered normalized messages.
+  source-identity: |-
+    A document key combines its project, source type, source instance, and
+    source-specific identity. Repository document identity additionally contains the
+    repository, branch, and path. Conversation identity contains the provider and
+    provider session identifier.
+
+    Each synchronization request includes a source-instance identifier and manifest.
+    The server changes only records owned by that source instance. An empty or partial
+    request cannot delete another mount, branch, repository, or source type.
+  synchronization-protocol: |-
+    Synchronization is idempotent and content-hash based. The client constructs a
+    manifest containing the project, source instance, source type, documents, content
+    hashes, provenance, and synchronization boundary. The server processes the
+    manifest transactionally for that source instance.
+
+    Content whose hash matches the current revision requires no rendering or
+    embedding work. Changed content creates a new immutable revision and makes it
+    current. Documents absent from a complete manifest become deleted from the
+    current source projection according to the same revision-retention rules as
+    changed content. Ad-hoc single-document uploads identify themselves as partial
+    manifests and do not imply deletion of sibling documents.
+  upload-modes: |-
+    The `lore` executable supports two upload modes:
+
+    - Ad-hoc commands scan and upload a specified source immediately.
+    - `lore watch` performs a complete synchronization at startup, observes configured
+      mounted directories, debounces change bursts, uploads changed content, and
+      periodically performs a complete rescan to recover missed filesystem events.
+
+    Watch configuration associates each mounted directory with a project, source
+    instance, and source adapter. Task and Mnemonic note directories are the standard
+    continuously watched sources. The same adapter commands remain available for
+    ad-hoc use. Watch retries use bounded exponential backoff while continuing to
+    observe subsequent filesystem changes.
+  source-layout: |-
+    Host directories are mounted into watcher containers at project-scoped paths.
+    Example configuration:
+
+    ```yaml
+    project: refinery
+    sources:
+      tasks: /sources/refinery/tasks
+      notes: /sources/refinery/notes
+    ```
+
+    Docker bind mounts originate under `/workspaces/mnt` in the development
+    environment, which mirrors a directory on the underlying Docker host.
+  task-ingestion: |-
+    The task adapter reads the local kanban board representation and creates one Lore
+    document per task. It indexes task title, description, structured fields, and
+    tags. Tags are also stored as exact structured values for navigation and filters.
+
+    Dependencies become directed relationships between task documents. Task pages
+    link dependencies and dependents to their corresponding pages. Dependency edges
+    do not contribute additional search weight. The web application provides no task
+    mutation operations.
+  note-ingestion: |-
+    The note adapter reads Markdown notes from a Mnemonic notes directory, including
+    `/memory/.mnemonic/notes` when invoked in that environment. It retains note
+    identity and source provenance, renders the Markdown body, indexes normalized
+    content, and stores note tags as exact structured values.
+
+    A watcher container receives project-specific note directories through mounted
+    paths such as `/sources/refinery/notes`; it does not require access to the source
+    devcontainer or Git commit lifecycle.
+  briefing-contract: |-
+    A briefing is one trusted `.html` file. The `<body>` content is its meaningful
+    payload. The briefing renderer places that body inside the Lore page shell and
+    applies the application's well-known `site.css`. Head content, document metadata,
+    and embedded head resources do not participate in rendering.
+
+    Briefing body content is otherwise self-contained. Images use data URLs and
+    diagrams use inline SVG, including pre-rendered Mermaid diagrams. The server stores
+    the body HTML and extracts its visible text, headings, and element identities for
+    indexing and annotations. The upload filename supplies the title unless the
+    upload command supplies one explicitly.
+
+    The `lore` executable embeds the `site.css` that corresponds to its release and an
+    authoring skill that instructs agents how to create conforming briefings. Commands
+    expose each resource to humans and agents and can write exact copies to disk. A
+    machine-readable contract command reports the stylesheet identity, document
+    structure, and supported conventions.
+
+    The command surface includes:
+
+    ```text
+    lore briefings show-css
+    lore briefings show-skill
+    lore briefings write-css <path>
+    lore briefings write-skill <path>
+    lore briefings contract --format json
+    ```
+  repository-document-ingestion: |-
+    Repository documents are uploaded through ad-hoc CLI commands. The command accepts
+    the project, repository, branch, and selected files or directories. It derives
+    repository and branch values from Git when available and records their resolved
+    values in the upload manifest.
+
+    Markdown files use the shared Markdown renderer. YAML files use a structural HTML
+    renderer. Other supported text formats use an appropriate text or source renderer.
+    Repository directories are not part of the standard watcher configuration.
+  markdown-rendering: |-
+    The Markdown renderer supports GitHub Flavored Markdown, tables, task lists,
+    footnotes, syntax-highlighted code blocks, stable heading identifiers, and YAML
+    front matter. Markdown content uses the application stylesheet and participates
+    in text-quote and structural annotation targeting.
+  yaml-rendering: |-
+    The YAML renderer traverses the parsed value tree and produces an HTML document.
+    Mapping property names become headings. A property's nesting depth determines its
+    heading level, capped at `<h6>`. Text scalar properties become paragraphs. String
+    arrays become lists. Numeric and mixed arrays become lists whose items retain
+    their scalar representation. Nested mappings become nested sections, and arrays
+    of mappings become repeated structured sections.
+  conversation-ingestion: |-
+    Provider adapters normalize Claude and Codex JSONL session records into a
+    conversation with ordered user messages, assistant messages, and assistant
+    thinking blocks. Conversation pages render messages as Markdown. Thinking is
+    present in the conversation and collapsed by default.
+
+    System instructions, developer instructions, bookkeeping events, tool calls, and
+    tool results do not enter the normalized conversation, stored rendered content,
+    or search index. Search indexes user messages and assistant messages at normal
+    weight and assistant thinking at a lower weight.
+
+    Claude ingestion obtains project evidence from the project directory and record
+    metadata. Codex ingestion resolves project identity using this precedence:
+
+    1. An explicit session mapping.
+    2. The longest matching working-directory prefix in the mounted mapping file.
+    3. Git repository metadata carried by the session record.
+    4. An explicitly enabled `PROJECT` fallback.
+
+    A session without sufficient project evidence remains unassigned and is not
+    uploaded. The mapping file can be mounted consistently into devcontainers and
+    watcher containers.
+  search-indexing: |-
+    Each current document revision is divided into bounded, overlapping semantic
+    chunks that retain document and structural location metadata. PostgreSQL stores a
+    weighted full-text search vector for keyword relevance and one pgvector embedding
+    per semantic chunk. Embeddings are generated through Vercel AI Gateway using the
+    fixed `voyage/voyage-4` model.
+
+    Exact tags and source metadata remain structured fields in addition to appearing
+    in keyword text. Task and note tags receive stronger keyword weight than ordinary
+    body text. Task dependencies do not affect relevance.
+
+    A search request selects a project before candidate retrieval. PostgreSQL
+    full-text search and vector similarity independently produce ranked candidates
+    from that project. Reciprocal rank fusion combines the rankings. Results group
+    matching chunks under their parent document and expose filters for source type,
+    branch, repository, tags, and dates.
+  annotation-model: |-
+    An annotation belongs to a project and targets one immutable document revision.
+    It stores its body, status, browser-supplied username, creation and modification
+    timestamps, originating operation, target selector, selected quotation, structural
+    location, and original content hash.
+
+    Annotation status is one of `open`, `resolved`, or `dismissed`. Every project
+    viewer can read all annotations in that project. The browser stores a user-entered
+    attribution name in local storage and supplies it with annotation mutations. This
+    name is attribution rather than authenticated identity.
+
+    Target selectors use source-specific stable identities where available, such as
+    task fields, YAML property paths, HTML element identifiers, heading paths, and
+    conversation message identifiers. Text annotations also retain the selected quote
+    and surrounding context.
+  revision-retention: |-
+    A document's current revision is the default rendered version. Replaced revisions
+    without annotations are removed. Replaced revisions containing open annotations
+    remain available through a revision dropdown so viewers can inspect the exact
+    annotated content.
+
+    A viewer can copy an annotation to another revision or move it there. Copying
+    creates a new annotation whose provenance references the source annotation. Moving
+    changes the active target while retaining the original revision and selector in
+    provenance.
+
+    An old revision becomes eligible for cleanup when all its annotations are resolved
+    or dismissed. Cleanup is an explicit operation. Removing the rendered revision
+    retains annotation tombstones containing annotation text, attribution, status,
+    resolution metadata, original content hash, selector, and source provenance.
+  annotation-export: |-
+    The CLI downloads annotations from exactly one project. Export supports a complete
+    project snapshot and incremental retrieval using an update cursor. The export
+    format contains document identity, revision identity, source provenance, target
+    selector, annotation attribution, status, body, and timestamps in a stable
+    machine-readable structure.
+  web-interface: |-
+    The web application provides a project selector and project-scoped navigation for
+    tasks, notes, briefings, repository documents, and conversations. Source pages
+    present rendered content, annotations, source provenance, and a revision selector
+    when annotated prior revisions exist.
+
+    Search is available within the active project and displays grouped hybrid results
+    with source and metadata filters. Task pages link dependencies and dependents.
+    Conversation pages distinguish user and assistant messages and place thinking in
+    collapsed disclosure regions. Briefings render their stored body within the normal
+    application shell using `site.css`.
+  access-and-credentials: |-
+    Cloudflare Tunnel exposes the local service and Cloudflare Zero Trust controls
+    remote access. Lore also supports direct local-network access. The server accepts
+    simple shared credentials for upload and administrative CLI operations. Browser
+    viewing and annotation attribution do not depend on an application account system.
+  api-boundaries: |-
+    The HTTP API separates browse/search operations, annotation mutations and exports,
+    and source synchronization. Every operation validates its project boundary.
+    Synchronization credentials authorize ingestion; administrative credentials
+    authorize cleanup and project configuration. Annotation operations record the
+    supplied browser attribution name.
+  deployment: |-
+    Docker Compose defines PostgreSQL with pgvector and the Lore server. Watcher
+    services use the published Lore image with source directories and configuration
+    files mounted read-only. The server is stateless apart from PostgreSQL and embedded
+    static web assets.
+
+    Environment configuration supplies the PostgreSQL connection, Vercel AI Gateway
+    credentials, ingestion credential, administrative credential, and public base URL.
+    Database migrations run as an explicit server or CLI operation against the Compose
+    database.
+  distribution: |-
+    The `lore` CLI is published for Linux x86-64 and ARM64 through a Homebrew formula.
+    Release artifacts contain the executable, embedded `site.css`, embedded briefing
+    authoring skill, and machine-readable briefing contract. The Lore server and CLI
+    watcher image is published to GitHub Container Registry under
+    `ghcr.io/wyrd-company/lore`.
+
+    The release and packaging structure follows the established pattern in
+    `/workspaces/tools/agent-svgtools` (cli/homebrew) or `/workspaces/refinery/gelato` (docker). Image and CLI versions identify the same Lore
+    release so briefing resources and server presentation remain aligned.

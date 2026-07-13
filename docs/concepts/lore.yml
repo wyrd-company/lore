@@ -1,0 +1,47 @@
+$schema: https://refinery.systems/ontology/concept
+relationships: {}
+description: >-
+  Lore is a multi-project knowledge portal that presents locally authored project
+  information through a shared web interface. It combines project-scoped browsing,
+  hybrid search, linked task dependencies, rendered documents and conversations,
+  and collaborative annotations without making the portal the source of truth for
+  uploaded material.
+properties:
+  project-scoped-content: >-
+    Tasks, notes, briefings, repository documents, conversations, search results,
+    and annotations belong to exactly one project.
+  local-authority: >-
+    Uploaded sources remain authoritative in their local files while Lore stores
+    their current representations and annotated prior revisions.
+  shared-annotations: >-
+    Every viewer of a project can read its annotations, whose attribution records
+    the browser-provided username and originating operation.
+  local-deployment: >-
+    The application runs under Docker Compose on a local network and is suitable for
+    exposure through Cloudflare Tunnel and Cloudflare Zero Trust.
+  trusted-content: >-
+    Uploaded content is authored by privileged collaborators and is rendered as
+    trusted project material.
+features:
+  browse-project-knowledge: >-
+    Presents tasks, notes, briefings, repository documents, and agent conversations
+    using representations suited to each source.
+  search-project-knowledge: >-
+    Combines PostgreSQL keyword relevance with voyage/voyage-4 semantic similarity
+    within the selected project.
+  navigate-task-dependencies: >-
+    Links task dependency relationships to the corresponding task pages.
+  annotate-content: >-
+    Creates open, resolved, and dismissed annotations on uploaded content with
+    attribution and target provenance.
+  retain-annotated-revisions: >-
+    Keeps replaced document revisions while they contain open annotations and makes
+    completed prior revisions eligible for cleanup.
+  synchronize-local-sources: >-
+    Uploads sources on demand or watches mounted task and note directories for
+    changes using the same command-line application.
+  export-project-annotations: >-
+    Downloads annotations for one project through the command-line application.
+  guide-briefing-authors: >-
+    Exposes the site's stylesheet and an embedded briefing-authoring skill through
+    discoverable command-line commands.
