@@ -68,6 +68,8 @@ class Lore < Formula
 end
 EOF
 
+brew style "$formula"
+
 cd "$TAP_DIR"
 git config user.name "github-actions[bot]"
 git config user.email "github-actions[bot]@users.noreply.github.com"
