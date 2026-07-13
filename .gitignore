@@ -1,1 +1,5 @@
 .env
+.build-notes/
+bin/
+coverage.out
+web/node_modules/
