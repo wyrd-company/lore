@@ -1,9 +1,23 @@
 package synchronization
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func TestRetryablePostgresErrors(t *testing.T) {
+	for _, code := range []string{"40001", "40P01"} {
+		if !IsRetryable(fmt.Errorf("commit: %w", &pgconn.PgError{Code: code})) {
+			t.Fatalf("PostgreSQL error %s should be retryable", code)
+		}
+	}
+	if IsRetryable(&pgconn.PgError{Code: "23505"}) {
+		t.Fatal("unique violation must not be classified as retryable")
+	}
+}
 
 func TestManifestValidate(t *testing.T) {
 	valid := Manifest{
