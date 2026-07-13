@@ -1,0 +1,5 @@
+.git
+.build-notes
+.env
+bin
+web/node_modules

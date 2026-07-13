@@ -1,0 +1,101 @@
+version: "3"
+
+vars:
+  VERSION:
+    sh: cat VERSION
+  LOCAL_DATABASE_URL: postgres://lore:lore@localhost:5432/lore?sslmode=disable
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  web:install:
+    internal: true
+    sources:
+      - web/package.json
+      - web/package-lock.json
+    generates:
+      - web/node_modules/.package-lock.json
+    cmds:
+      - npm ci --prefix web
+
+  web:build:
+    desc: Build the React application for embedding
+    deps: [web:install]
+    sources:
+      - web/src/**/*
+      - web/index.html
+      - web/vite.config.ts
+      - design/site.css
+    generates:
+      - web/dist/index.html
+    cmds:
+      - npm run build --prefix web
+
+  format:
+    desc: Format Go source
+    cmds:
+      - gofmt -w cmd internal web/assets.go
+
+  lint:
+    desc: Check formatting, Go analysis, and TypeScript
+    deps: [web:install]
+    cmds:
+      - test -z "$(gofmt -l cmd internal web/assets.go)"
+      - go vet ./...
+      - npm run lint --prefix web
+
+  database:up:
+    desc: Start real pgvector PostgreSQL and wait until healthy
+    cmds:
+      - docker compose up -d --wait postgres
+
+  migrate:
+    desc: Apply database migrations explicitly
+    deps: [database:up]
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go run ./cmd/lore-server migrate
+
+  test:
+    desc: Run all tests against real PostgreSQL
+    deps: [database:up]
+    env:
+      TEST_DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+    cmds:
+      - go test -count=1 ./...
+
+  build:
+    desc: Build CLI and server with embedded web assets
+    deps: [web:build]
+    cmds:
+      - mkdir -p bin
+      - go build -trimpath -ldflags "-X github.com/wyrd-company/lore/internal/version.Value={{.VERSION}}" -o bin/lore ./cmd/lore
+      - go build -trimpath -ldflags "-X github.com/wyrd-company/lore/internal/version.Value={{.VERSION}}" -o bin/lore-server ./cmd/lore-server
+
+  dev:
+    desc: Start PostgreSQL, migrate, and run lore-server locally
+    deps: [migrate, web:build]
+    env:
+      DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"
+      LORE_INGEST_TOKEN: local-ingest-token
+      LORE_ADMIN_TOKEN: local-admin-token
+      PUBLIC_BASE_URL: http://localhost:8080
+    cmds:
+      - go run ./cmd/lore-server serve
+
+  compose:up:
+    desc: Build and run the complete local stack
+    cmds:
+      - docker compose up -d --build --wait
+
+  ci:
+    desc: Run the local CI validation sequence
+    cmds:
+      - task: lint
+      - task: test
+      - task: build
+      - docker build --build-arg VERSION={{.VERSION}} -t lore:ci .

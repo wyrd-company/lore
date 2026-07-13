@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: lore
+          POSTGRES_USER: lore
+          POSTGRES_PASSWORD: lore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lore -d lore"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: go mod download
+      - run: npm ci
+        working-directory: web
+      - name: Format and analyze
+        run: |
+          test -z "$(gofmt -l cmd internal web/assets.go)"
+          go vet ./...
+          npm run lint --prefix web
+      - name: Test with PostgreSQL
+        run: go test -count=1 ./...
+        env:
+          TEST_DATABASE_URL: postgres://lore:lore@localhost:5432/lore?sslmode=disable
+      - name: Build release binaries
+        run: |
+          npm run build --prefix web
+          go build ./cmd/lore ./cmd/lore-server
+      - run: docker build --build-arg VERSION="$(cat VERSION)" -t lore:ci .
