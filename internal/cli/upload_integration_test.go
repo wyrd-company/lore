@@ -109,4 +109,54 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 			t.Fatalf("%s documents = %d, want %d (all: %#v)", sourceType, counts[sourceType], count, counts)
 		}
 	}
+
+	notesDirectory := t.TempDir()
+	note, err := os.ReadFile(filepath.Join(fixtures, "notes", "note-identity.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	notePath := filepath.Join(notesDirectory, "note-identity.md")
+	if err := os.WriteFile(notePath, note, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watchConfig := filepath.Join(t.TempDir(), "watch.yml")
+	configuration := fmt.Sprintf("debounce: 25ms\nrescan-interval: 1h\nsources:\n  - project: lore\n    source-instance: watched-notes\n    adapter: notes\n    path: %s\n", notesDirectory)
+	if err := os.WriteFile(watchConfig, []byte(configuration), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watchContext, stopWatch := context.WithCancel(ctx)
+	watchResult := make(chan error, 1)
+	go func() {
+		watchResult <- runner.Run(watchContext, []string{"watch", "--config", watchConfig, "--server", server.URL, "--token", "ingest-secret"})
+	}()
+	waitForCount(t, ctx, pool, `SELECT count(*) FROM revisions r JOIN documents d ON d.id = r.document_id JOIN source_instances s ON s.id = d.source_instance_id WHERE s.external_key = 'watched-notes'`, 1)
+	if err := os.WriteFile(notePath, append(note, []byte("\nWatcher update.\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForCount(t, ctx, pool, `SELECT count(*) FROM revisions r JOIN documents d ON d.id = r.document_id JOIN source_instances s ON s.id = d.source_instance_id WHERE s.external_key = 'watched-notes'`, 2)
+	stopWatch()
+	select {
+	case err := <-watchResult:
+		if err != nil {
+			t.Fatalf("watch command: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("watch command did not stop after context cancellation")
+	}
+}
+
+func waitForCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query string, expected int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		if err := pool.QueryRow(ctx, query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count == expected {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("database count did not reach %d", expected)
 }
