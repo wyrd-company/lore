@@ -32,8 +32,7 @@ The HTTP API has three project-scoped boundaries:
 - `/api/projects/{project}/annotations`
 - `POST /api/projects/{project}/synchronizations`
 
-Annotation handlers remain API shells. Browse and hybrid search are implemented,
-and synchronization provides the
+Browse and hybrid search are implemented, and synchronization provides the
 transactional manifest core: source-instance ownership, complete versus partial
 manifests, immutable revisions, content-hash idempotency, and complete-manifest
 deletion isolation. New revisions are chunked and keyword-indexed transactionally;
@@ -89,6 +88,19 @@ To deploy the complete local stack:
 task migrate
 docker compose up -d --build --wait
 ```
+
+Create the first project through the admin-protected bootstrap path before its
+first synchronization:
+
+```bash
+export LORE_SERVER_URL=http://localhost:8080
+export LORE_ADMIN_TOKEN=local-admin-token
+lore projects create --slug lore --name "Lore"
+```
+
+The command is idempotent by slug. The equivalent endpoint is
+`POST /api/projects` with the administrative bearer token and a JSON body
+containing `slug` and `name`.
 
 The published image is `ghcr.io/wyrd-company/lore`. It contains both
 `lore-server` and `lore`; its default entry point starts the server.

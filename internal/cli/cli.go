@@ -13,6 +13,7 @@ import (
 	"github.com/wyrd-company/lore/internal/config"
 	"github.com/wyrd-company/lore/internal/database"
 	"github.com/wyrd-company/lore/internal/ingest"
+	"github.com/wyrd-company/lore/internal/projects"
 	"github.com/wyrd-company/lore/internal/synchronization"
 	"github.com/wyrd-company/lore/internal/version"
 	"github.com/wyrd-company/lore/internal/watcher"
@@ -48,11 +49,38 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		return r.watch(ctx, args[1:])
 	case "annotations":
 		return r.annotations(args[1:])
+	case "projects":
+		return r.projects(ctx, args[1:])
 	case "briefings":
 		return r.briefings(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func (r *Runner) projects(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "create" {
+		return fmt.Errorf("usage: lore projects create --slug <slug> --name <name>")
+	}
+	flags := flag.NewFlagSet("projects create", flag.ContinueOnError)
+	flags.SetOutput(r.ErrOut)
+	slug := flags.String("slug", "", "project slug")
+	name := flags.String("name", "", "project display name")
+	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
+	token := flags.String("token", os.Getenv("LORE_ADMIN_TOKEN"), "Lore admin token")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	api, err := client.New(*server, *token)
+	if err != nil {
+		return err
+	}
+	project, err := api.CreateProject(ctx, projects.CreateRequest{Slug: *slug, Name: *name})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(r.Out, "%s: %s\n", project.Slug, project.Name)
+	return err
 }
 
 func (r *Runner) upload(ctx context.Context, args []string) error {
@@ -189,6 +217,7 @@ func (r *Runner) usage() {
 usage:
   lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
   lore watch --config <path>
+	  lore projects create --slug <slug> --name <name>
   lore annotations export
   lore briefings <show-css|show-skill|write-css|write-skill|contract>
   lore migrate

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wyrd-company/lore/internal/projects"
 	"github.com/wyrd-company/lore/internal/synchronization"
 )
 
@@ -18,6 +19,49 @@ type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+}
+
+func (c *Client) CreateProject(ctx context.Context, request projects.CreateRequest) (projects.Project, error) {
+	var project projects.Project
+	if err := c.doJSON(ctx, http.MethodPost, "/api/projects", request, &project); err != nil {
+		return project, err
+	}
+	return project, nil
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, bodyValue, result any) error {
+	body, err := json.Marshal(bodyValue)
+	if err != nil {
+		return fmt.Errorf("encode request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("request Lore: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		limited, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+		var problem struct {
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(limited, &problem) == nil && problem.Detail != "" {
+			return fmt.Errorf("Lore server returned %s: %s", response.Status, problem.Detail)
+		}
+		return fmt.Errorf("Lore server returned %s", response.Status)
+	}
+	if result == nil {
+		return nil
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(result); err != nil {
+		return fmt.Errorf("decode Lore response: %w", err)
+	}
+	return nil
 }
 
 func New(baseURL, token string) (*Client, error) {

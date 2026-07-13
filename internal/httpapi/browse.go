@@ -1,12 +1,41 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/wyrd-company/lore/internal/browse"
+	"github.com/wyrd-company/lore/internal/projects"
 )
+
+func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
+	reader := http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	var request projects.CreateRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid project")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "project request must contain one object")
+		return
+	}
+	project, created, err := s.projects.Create(r.Context(), request)
+	if err != nil {
+		writeProblem(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, project)
+}
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := s.browse.Projects(r.Context())

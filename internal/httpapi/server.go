@@ -13,6 +13,7 @@ import (
 
 	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/embedding"
+	"github.com/wyrd-company/lore/internal/projects"
 	"github.com/wyrd-company/lore/internal/retrieval"
 	"github.com/wyrd-company/lore/internal/synchronization"
 	webassets "github.com/wyrd-company/lore/web"
@@ -23,6 +24,7 @@ type Server struct {
 	sync        *synchronization.Repository
 	search      *retrieval.Repository
 	browse      *browse.Repository
+	projects    *projects.Repository
 	embedder    *embedding.Client
 	ingestToken string
 	adminToken  string
@@ -34,13 +36,14 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 		embedder = embedders[0]
 	}
 	server := &Server{
-		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), embedder: embedder,
+		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), projects: projects.NewRepository(pool), embedder: embedder,
 		ingestToken: ingestToken, adminToken: adminToken,
 	}
 	mux := http.NewServeMux()
 
 	// Browse/search boundary. All handlers receive a resolved project in context.
 	mux.Handle("GET /api/projects", http.HandlerFunc(server.listProjects))
+	mux.Handle("POST /api/projects", bearerToken(adminToken, http.HandlerFunc(server.createProject)))
 	mux.Handle("GET /api/projects/{project}/browse", projectScope(pool, http.HandlerFunc(server.browseProject)))
 	mux.Handle("GET /api/projects/{project}/search", projectScope(pool, http.HandlerFunc(server.searchProject)))
 	mux.Handle("GET /api/projects/{project}/documents/{document}", projectScope(pool, http.HandlerFunc(server.documentDetail)))
@@ -94,6 +97,11 @@ func (s *Server) synchronize(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.sync.Apply(r.Context(), project.ID, manifest)
 	if err != nil {
+		if synchronization.IsRetryable(err) {
+			w.Header().Set("Retry-After", "1")
+			writeProblem(w, http.StatusServiceUnavailable, "synchronization conflict; retry request")
+			return
+		}
 		writeProblem(w, http.StatusInternalServerError, "synchronization failed")
 		return
 	}
