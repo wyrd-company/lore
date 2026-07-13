@@ -58,7 +58,7 @@ func (s *Server) synchronize(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusInternalServerError, "project scope missing")
 		return
 	}
-	reader := http.MaxBytesReader(w, r.Body, 32<<20)
+	reader := http.MaxBytesReader(w, r.Body, 256<<20)
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
 	var manifest synchronization.Manifest

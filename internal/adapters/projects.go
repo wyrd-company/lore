@@ -95,6 +95,37 @@ func (m ProjectMappings) ResolveClaudeProjectDirectory(sessionPath string) strin
 	return ""
 }
 
+// Projects returns the explicitly configured project universe. Complete
+// conversation scans use it to emit empty manifests when a project's final
+// session disappears from the source directory.
+func (m ProjectMappings) Projects(fallback string) []string {
+	seen := make(map[string]struct{})
+	for _, project := range m.Sessions {
+		if project != "" {
+			seen[project] = struct{}{}
+		}
+	}
+	for _, mapping := range m.Paths {
+		if mapping.Project != "" {
+			seen[mapping.Project] = struct{}{}
+		}
+	}
+	for _, project := range m.Repositories {
+		if project != "" {
+			seen[project] = struct{}{}
+		}
+	}
+	if m.AllowProjectFallback && fallback != "" {
+		seen[fallback] = struct{}{}
+	}
+	projects := make([]string, 0, len(seen))
+	for project := range seen {
+		projects = append(projects, project)
+	}
+	sort.Strings(projects)
+	return projects
+}
+
 func withinPath(path, prefix string) bool {
 	if path == "" || prefix == "" {
 		return false

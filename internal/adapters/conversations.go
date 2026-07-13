@@ -80,15 +80,25 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 		provenance := map[string]any{
 			"path": path, "provider": provider, "repository": conversation.Repository, "branch": conversation.Branch,
 		}
-		document, err := makeDocument(provider+":"+conversation.SessionID, conversation.Title, source, "conversation", rendered, metadata, provenance, nil)
+		normalizedSource, err := json.Marshal(conversation.Messages)
+		if err != nil {
+			return result, fmt.Errorf("encode normalized conversation: %w", err)
+		}
+		document, err := makeDocument(provider+":"+conversation.SessionID, conversation.Title, normalizedSource, "conversation", rendered, metadata, provenance, nil)
 		if err != nil {
 			return result, err
 		}
 		byProject[project] = append(byProject[project], document)
 	}
-	projects := make([]string, 0, len(byProject))
+	projects := mappings.Projects(fallbackProject)
+	knownProjects := make(map[string]struct{}, len(projects))
+	for _, project := range projects {
+		knownProjects[project] = struct{}{}
+	}
 	for project := range byProject {
-		projects = append(projects, project)
+		if _, exists := knownProjects[project]; !exists {
+			projects = append(projects, project)
+		}
 	}
 	sort.Strings(projects)
 	for _, project := range projects {

@@ -21,6 +21,7 @@ type Watcher struct {
 	config Config
 	client *client.Client
 	log    io.Writer
+	logMu  sync.Mutex
 }
 
 type syncRequest struct {
@@ -111,7 +112,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 		case err, ok := <-filesystem.Errors:
 			if ok {
-				_, _ = fmt.Fprintf(w.log, "watch error: %v\n", err)
+				w.writeLog("watch error: %v\n", err)
 			}
 		case <-debounce:
 			for index := range dirty {
@@ -138,17 +139,17 @@ func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source
 				if err != nil {
 					break
 				}
-				_, _ = fmt.Fprintf(w.log, "%s/%s: %d created, %d updated, %d unchanged, %d deleted\n",
+				w.writeLog("%s/%s: %d created, %d updated, %d unchanged, %d deleted\n",
 					manifest.Project, manifest.SourceInstance, result.Created, result.Updated, result.Unchanged, result.Deleted)
 			}
 		}
 		if err == nil {
 			if skipped > 0 {
-				_, _ = fmt.Fprintf(w.log, "%s: skipped %d unassigned session(s)\n", source.SourceInstance, skipped)
+				w.writeLog("%s: skipped %d unassigned session(s)\n", source.SourceInstance, skipped)
 			}
 			return
 		}
-		_, _ = fmt.Fprintf(w.log, "%s synchronization attempt %d failed: %v\n", source.SourceInstance, attempt, err)
+		w.writeLog("%s synchronization attempt %d failed: %v\n", source.SourceInstance, attempt, err)
 		if attempt == 5 {
 			return
 		}
@@ -159,6 +160,12 @@ func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source
 		}
 		delay = min(delay*2, 4*time.Second)
 	}
+}
+
+func (w *Watcher) writeLog(format string, arguments ...any) {
+	w.logMu.Lock()
+	defer w.logMu.Unlock()
+	_, _ = fmt.Fprintf(w.log, format, arguments...)
 }
 
 func enqueue(jobs chan syncRequest, request syncRequest) {

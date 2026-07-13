@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,5 +92,45 @@ func TestUnassignedConversationIsSkipped(t *testing.T) {
 	}
 	if scan.Skipped != 1 || len(scan.Manifests) != 0 {
 		t.Fatalf("unassigned scan = %#v", scan)
+	}
+}
+
+func TestConversationHashExcludesBookkeepingRecords(t *testing.T) {
+	t.Parallel()
+	mappings := ProjectMappings{Sessions: map[string]string{"claude-session": "lore"}}
+	original, err := Conversations("claude", filepath.Join("testdata", "conversations", "claude"), "sessions", mappings, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join("testdata", "conversations", "claude", "session.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	bookkeeping := []byte("\n{\"type\":\"attachment\",\"sessionId\":\"claude-session\",\"data\":\"ignored\"}\n")
+	if err := os.WriteFile(filepath.Join(directory, "session.jsonl"), append(source, bookkeeping...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withBookkeeping, err := Conversations("claude", directory, "sessions", mappings, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := original.Manifests[0].Documents[0].ContentHash
+	second := withBookkeeping.Manifests[0].Documents[0].ContentHash
+	if first != second {
+		t.Fatalf("excluded bookkeeping changed content hash: %s != %s", first, second)
+	}
+}
+
+func TestConversationScanEmitsEmptyManifestForKnownProject(t *testing.T) {
+	t.Parallel()
+	scan, err := Conversations("claude", t.TempDir(), "sessions", ProjectMappings{
+		Paths: []PathMapping{{Prefix: "/workspaces/tools/lore", Project: "lore"}},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Manifests) != 1 || scan.Manifests[0].Project != "lore" || len(scan.Manifests[0].Documents) != 0 {
+		t.Fatalf("expected empty known-project manifest, got %#v", scan)
 	}
 }

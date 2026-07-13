@@ -45,6 +45,12 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("parse rescan-interval: %w", err)
 		}
 	}
+	if config.Debounce <= 0 {
+		return Config{}, fmt.Errorf("debounce must be greater than zero")
+	}
+	if config.RescanInterval <= 0 {
+		return Config{}, fmt.Errorf("rescan-interval must be greater than zero")
+	}
 	if err := decodeSources(raw.Sources, &config); err != nil {
 		return Config{}, err
 	}
