@@ -23,7 +23,20 @@ const navItems = [
 
 function useStoredValue(key: string, initial: string) {
   const [value, setValue] = useState(() => localStorage.getItem(key) ?? initial);
-  const update = (next: string) => { setValue(next); localStorage.setItem(key, next); };
+  useEffect(() => {
+    const synchronize = (event: Event) => {
+      if (event instanceof StorageEvent && event.key === key) setValue(event.newValue ?? initial);
+      if (event instanceof CustomEvent && event.detail?.key === key) setValue(event.detail.value);
+    };
+    addEventListener("storage", synchronize);
+    addEventListener("lore:stored-value", synchronize);
+    return () => { removeEventListener("storage", synchronize); removeEventListener("lore:stored-value", synchronize); };
+  }, [key, initial]);
+  const update = (next: string) => {
+    setValue(next);
+    localStorage.setItem(key, next);
+    dispatchEvent(new CustomEvent("lore:stored-value", { detail: { key, value: next } }));
+  };
   return [value, update] as const;
 }
 
