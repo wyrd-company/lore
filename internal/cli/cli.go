@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -48,7 +49,7 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 	case "watch":
 		return r.watch(ctx, args[1:])
 	case "annotations":
-		return r.annotations(args[1:])
+		return r.annotations(ctx, args[1:])
 	case "projects":
 		return r.projects(ctx, args[1:])
 	case "briefings":
@@ -185,11 +186,53 @@ func (r *Runner) briefings(args []string) error {
 	}
 }
 
-func (r *Runner) annotations(args []string) error {
-	if len(args) == 1 && args[0] == "export" {
-		return fmt.Errorf("annotation export is planned for milestone 4")
+func (r *Runner) annotations(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "export" {
+		return fmt.Errorf("usage: lore annotations export --project <project> [--after <cursor>] [--output <path>]")
 	}
-	return fmt.Errorf("usage: lore annotations export")
+	flags := flag.NewFlagSet("annotations export", flag.ContinueOnError)
+	flags.SetOutput(r.ErrOut)
+	project := flags.String("project", os.Getenv("PROJECT"), "exactly one Lore project slug")
+	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
+	after := flags.Int64("after", 0, "incremental update cursor; zero exports a complete snapshot")
+	output := flags.String("output", "-", "output path, or - for standard output")
+	format := flags.String("format", "json", "export format")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *project == "" {
+		return fmt.Errorf("--project or PROJECT is required")
+	}
+	if *after < 0 {
+		return fmt.Errorf("--after must be non-negative")
+	}
+	if *format != "json" {
+		return fmt.Errorf("unsupported annotation export format %q", *format)
+	}
+	api, err := client.NewViewer(*server)
+	if err != nil {
+		return err
+	}
+	export, err := api.ExportAnnotations(ctx, *project, *after)
+	if err != nil {
+		return err
+	}
+	writer := r.Out
+	var file *os.File
+	if *output != "-" {
+		file, err = os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			return fmt.Errorf("open annotation export: %w", err)
+		}
+		defer file.Close()
+		writer = file
+	}
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(export); err != nil {
+		return fmt.Errorf("write annotation export: %w", err)
+	}
+	return nil
 }
 
 func (r *Runner) watch(ctx context.Context, args []string) error {
@@ -218,7 +261,7 @@ usage:
   lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
   lore watch --config <path>
 	  lore projects create --slug <slug> --name <name>
-  lore annotations export
+	  lore annotations export --project <project> [--after <cursor>]
   lore briefings <show-css|show-skill|write-css|write-skill|contract>
   lore migrate
   lore version`)+"\n")
