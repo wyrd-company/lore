@@ -18,10 +18,14 @@ import (
 )
 
 type Watcher struct {
-	config Config
-	client *client.Client
-	log    io.Writer
-	logMu  sync.Mutex
+	config        Config
+	client        *client.Client
+	log           io.Writer
+	logMu         sync.Mutex
+	retryAttempts int
+	retryInitial  time.Duration
+	retryMaximum  time.Duration
+	requeueDelay  time.Duration
 }
 
 type syncRequest struct {
@@ -29,7 +33,10 @@ type syncRequest struct {
 }
 
 func New(config Config, api *client.Client, log io.Writer) *Watcher {
-	return &Watcher{config: config, client: api, log: log}
+	return &Watcher{
+		config: config, client: api, log: log, retryAttempts: 5,
+		retryInitial: 250 * time.Millisecond, retryMaximum: 4 * time.Second, requeueDelay: 4 * time.Second,
+	}
 }
 
 func (w *Watcher) Run(ctx context.Context) error {
@@ -53,16 +60,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 	for index := range w.config.Sources {
 		requests[index] = make(chan syncRequest, 1)
 		workers.Add(1)
-		go func(source ingest.Source, jobs <-chan syncRequest) {
+		go func(source ingest.Source, jobs chan syncRequest) {
 			defer workers.Done()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case request := <-jobs:
-					w.synchronizeWithRetry(ctx, source, request.boundary)
-				}
-			}
+			w.runWorker(ctx, source, jobs)
 		}(w.config.Sources[index], requests[index])
 	}
 	defer func() {
@@ -128,10 +128,34 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
-func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source, boundary synchronization.Boundary) {
-	delay := 250 * time.Millisecond
-	for attempt := 1; attempt <= 5; attempt++ {
-		manifests, skipped, err := source.Build(boundary)
+func (w *Watcher) runWorker(ctx context.Context, source ingest.Source, jobs chan syncRequest) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case request := <-jobs:
+			if w.synchronizeWithRetry(ctx, source, request.boundary) {
+				continue
+			}
+			timer := time.NewTimer(w.requeueDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+				enqueue(jobs, request)
+			}
+		}
+	}
+}
+
+func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source, boundary synchronization.Boundary) bool {
+	delay := w.retryInitial
+	for attempt := 1; attempt <= w.retryAttempts; attempt++ {
+		manifests, skipped, warnings, err := source.Build(boundary)
+		for _, warning := range warnings {
+			w.writeLog("%s warning: %s\n", source.SourceInstance, warning)
+		}
 		if err == nil {
 			for _, manifest := range manifests {
 				var result synchronization.Result
@@ -147,19 +171,20 @@ func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source
 			if skipped > 0 {
 				w.writeLog("%s: skipped %d unassigned session(s)\n", source.SourceInstance, skipped)
 			}
-			return
+			return true
 		}
 		w.writeLog("%s synchronization attempt %d failed: %v\n", source.SourceInstance, attempt, err)
-		if attempt == 5 {
-			return
+		if attempt == w.retryAttempts {
+			return false
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(delay):
 		}
-		delay = min(delay*2, 4*time.Second)
+		delay = min(delay*2, w.retryMaximum)
 	}
+	return false
 }
 
 func (w *Watcher) writeLog(format string, arguments ...any) {
@@ -172,15 +197,16 @@ func enqueue(jobs chan syncRequest, request syncRequest) {
 	select {
 	case jobs <- request:
 	default:
-		if request.boundary == synchronization.BoundaryComplete {
-			select {
-			case <-jobs:
-			default:
+		select {
+		case pending := <-jobs:
+			if pending.boundary == synchronization.BoundaryComplete {
+				request = pending
 			}
-			select {
-			case jobs <- request:
-			default:
-			}
+		default:
+		}
+		select {
+		case jobs <- request:
+		default:
 		}
 	}
 }
