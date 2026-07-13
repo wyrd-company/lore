@@ -1,0 +1,6 @@
+{"timestamp":"2026-07-13T00:00:00Z","type":"session_meta","payload":{"id":"codex-session","cwd":"/workspaces/tools/lore","git":{"repository_url":"git@github.com:wyrd-company/lore.git","branch":"main"}}}
+{"timestamp":"2026-07-13T00:00:01Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"Private developer instruction"}]}}
+{"timestamp":"2026-07-13T00:00:02Z","type":"response_item","payload":{"type":"message","id":"u1","role":"user","content":[{"type":"input_text","text":"Implement Codex normalization."}]}}
+{"timestamp":"2026-07-13T00:00:03Z","type":"response_item","payload":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"Identify message records."}],"encrypted_content":"not-indexed"}}
+{"timestamp":"2026-07-13T00:00:04Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"private"}}
+{"timestamp":"2026-07-13T00:00:05Z","type":"response_item","payload":{"type":"message","id":"a1","role":"assistant","content":[{"type":"output_text","text":"Normalization is complete."}]}}
