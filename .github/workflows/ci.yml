@@ -50,11 +50,22 @@ jobs:
           go vet ./...
           npm run lint --prefix web
       - name: Test with PostgreSQL
-        run: go test -count=1 ./...
+        run: |
+          go test -count=1 ./...
+          npm run test --prefix web
         env:
           TEST_DATABASE_URL: postgres://lore:lore@localhost:5432/lore?sslmode=disable
       - name: Build release binaries
         run: |
           npm run build --prefix web
-          go build ./cmd/lore ./cmd/lore-server
+          mkdir -p bin
+          go build -o bin/lore ./cmd/lore
+          go build -o bin/lore-server ./cmd/lore-server
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+        working-directory: web
+      - name: Browser smoke test
+        run: ./scripts/e2e-web.sh
+        env:
+          TEST_DATABASE_URL: postgres://lore:lore@localhost:5432/lore?sslmode=disable
       - run: docker build --build-arg VERSION="$(cat VERSION)" -t lore:ci .
