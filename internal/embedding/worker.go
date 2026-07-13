@@ -116,7 +116,9 @@ func (w *Worker) store(ctx context.Context, jobs []job, vectors [][]float32) err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO embeddings (project_id, chunk_id, model, dimensions, embedding)
-			VALUES ($1, $2, $3, $4, $5::vector)
+			SELECT c.project_id, c.id, $3, $4, $5::vector
+			FROM chunks c
+			WHERE c.project_id = $1 AND c.id = $2
 			ON CONFLICT (chunk_id, model) DO UPDATE
 			SET embedding = EXCLUDED.embedding, dimensions = EXCLUDED.dimensions, created_at = now()`,
 			item.ProjectID, item.ChunkID, indexing.Model, indexing.Dimensions, vectorLiteral(vectors[index])); err != nil {
