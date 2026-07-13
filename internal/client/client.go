@@ -1,0 +1,68 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/wyrd-company/lore/internal/synchronization"
+)
+
+type Client struct {
+	baseURL    string
+	token      string
+	httpClient *http.Client
+}
+
+func New(baseURL, token string) (*Client, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("invalid Lore server URL %q", baseURL)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("Lore ingest token is required")
+	}
+	return &Client{baseURL: baseURL, token: token, httpClient: &http.Client{Timeout: 60 * time.Second}}, nil
+}
+
+func (c *Client) Synchronize(ctx context.Context, manifest synchronization.Manifest) (synchronization.Result, error) {
+	body, err := json.Marshal(manifest)
+	if err != nil {
+		return synchronization.Result{}, fmt.Errorf("encode synchronization manifest: %w", err)
+	}
+	endpoint := c.baseURL + "/api/projects/" + url.PathEscape(manifest.Project) + "/synchronizations"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return synchronization.Result{}, fmt.Errorf("create synchronization request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return synchronization.Result{}, fmt.Errorf("synchronize with Lore: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		limited, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+		var problem struct {
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(limited, &problem) == nil && problem.Detail != "" {
+			return synchronization.Result{}, fmt.Errorf("Lore server returned %s: %s", response.Status, problem.Detail)
+		}
+		return synchronization.Result{}, fmt.Errorf("Lore server returned %s", response.Status)
+	}
+	var result synchronization.Result
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
+	if err := decoder.Decode(&result); err != nil {
+		return synchronization.Result{}, fmt.Errorf("decode synchronization result: %w", err)
+	}
+	return result, nil
+}
