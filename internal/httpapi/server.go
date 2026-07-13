@@ -73,7 +73,23 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /health/ready", server.ready)
 	mux.Handle("/", spaHandler())
-	return mux
+	return securityHeaders(mux)
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Rendered Markdown and briefing bodies are trusted synchronization inputs.
+		// Keep their capability bounded to presentation: scripts, plugins, framing,
+		// cross-origin requests, and form submission are prohibited by the shell.
+		w.Header().Set("Content-Security-Policy", strings.Join([]string{
+			"default-src 'self'", "base-uri 'none'", "connect-src 'self'", "font-src 'self'",
+			"form-action 'none'", "frame-ancestors 'none'", "frame-src 'none'", "img-src 'self' data:", "object-src 'none'",
+			"script-src 'self'", "style-src 'self' 'unsafe-inline'",
+		}, "; "))
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) synchronize(w http.ResponseWriter, r *http.Request) {
