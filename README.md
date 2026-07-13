@@ -49,18 +49,20 @@ to the Compose PostgreSQL service; `PUBLIC_BASE_URL` is the browser-visible
 origin. `LORE_WATCH_CONFIG` and `LORE_SOURCE_ROOT` configure the optional
 watcher container.
 
-Start PostgreSQL, apply migrations explicitly, and launch the application:
+Build and start the application. Compose waits for PostgreSQL to become healthy,
+runs migrations in a one-shot init container using the Lore image, and starts
+the server only after the migration container succeeds:
 
 ```bash
 cp .env.example .env
 # Edit .env before continuing.
-docker compose up -d --wait postgres
-docker compose run --rm lore-server migrate
-docker compose up -d --build --wait lore-server
+docker compose up -d --build --wait
 ```
 
-The application is available at <http://localhost:8080>. Migrations are never
-run implicitly by server startup. They can also be applied with either binary:
+The application is available at <http://localhost:8080>. Migrations remain an
+explicit operation and are not run by server startup; Compose performs that
+operation through the `migrate` init service. Outside Compose they can be
+applied with either binary:
 
 ```bash
 DATABASE_URL='postgres://lore:lore@localhost:5432/lore?sslmode=disable' lore-server migrate
@@ -120,9 +122,7 @@ The image also contains the `lore` watcher executable. Create
 Compose profile:
 
 ```bash
-docker compose up -d --wait postgres
-docker compose run --rm lore-server migrate
-docker compose up -d --build --wait lore-server
+docker compose up -d --build --wait
 LORE_WATCH_CONFIG=./lore-watch.yml LORE_SOURCE_ROOT=/workspaces \
   docker compose --profile watch up -d --build lore-watcher
 ```
@@ -132,6 +132,38 @@ different mounts or credentials. Mount source directories read-only and give
 each projection a stable `source-instance`. Cloudflare Tunnel and Cloudflare
 Zero Trust exposure are intentionally out of scope; place the deployment behind
 the network boundary appropriate to the installation.
+
+### Existing PostgreSQL
+
+Lore can use an existing PostgreSQL 17 database instead of the bundled Compose
+service. Create a dedicated login role and database as a PostgreSQL
+administrator, then install `pgcrypto` and `vector` in that database as a
+superuser:
+
+```sql
+CREATE ROLE lore LOGIN PASSWORD 'replace-with-a-secret';
+CREATE DATABASE lore OWNER lore;
+\connect lore
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+```
+
+Alternatively, grant the Lore database role sufficient privileges to install
+both extensions. Pre-creating them is preferred because many managed providers
+reserve extension management for an administrative role.
+
+Set the deployment connection string to the external host, for example:
+
+```bash
+DATABASE_URL='postgres://lore:replace-with-a-secret@postgres.example.net:5432/lore?sslmode=require'
+```
+
+Remove or ignore the bundled `postgres` service and remove its direct
+`depends_on` entries from `migrate` and `lore-server`. Keep the
+`lore-server` dependency on `migrate` with
+`condition: service_completed_successfully`; the init container then applies
+migrations to `DATABASE_URL` and continues to gate server startup. This replaces
+the former manual `lore-server migrate` deployment step.
 
 ## CLI usage
 

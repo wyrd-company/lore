@@ -1,3 +1,11 @@
+x-lore-image: &lore-image
+  image: lore:${LORE_VERSION:-dev}
+  build:
+    context: .
+    target: server
+    args:
+      VERSION: ${LORE_VERSION:-dev}
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -15,15 +23,25 @@ services:
     volumes:
       - lore-postgres:/var/lib/postgresql/data
 
-  lore-server:
-    build:
-      context: .
-      target: server
-      args:
-        VERSION: ${LORE_VERSION:-dev}
+  migrate:
+    <<: *lore-image
+    command: ["migrate"]
+    restart: "no"
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://lore:lore@postgres:5432/lore?sslmode=disable}
+
+  lore-server:
+    <<: *lore-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://lore:lore@postgres:5432/lore?sslmode=disable}
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY}
@@ -35,12 +53,8 @@ services:
       - "8080:8080"
 
   lore-watcher:
+    <<: *lore-image
     profiles: [watch]
-    build:
-      context: .
-      target: server
-      args:
-        VERSION: ${LORE_VERSION:-dev}
     depends_on:
       lore-server:
         condition: service_healthy
