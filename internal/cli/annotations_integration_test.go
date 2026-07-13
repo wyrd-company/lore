@@ -63,7 +63,8 @@ func TestAnnotationSnapshotAndIncrementalExportThroughCLIWithPostgres(t *testing
 	if err := json.Unmarshal(output.Bytes(), &snapshot); err != nil {
 		t.Fatalf("decode snapshot: %v: %s", err, output.String())
 	}
-	if snapshot.Mode != "snapshot" || snapshot.Project != "lore" || len(snapshot.Annotations) != 1 || snapshot.Annotations[0].ID != record.ID {
+	if snapshot.Mode != "snapshot" || snapshot.Project != "lore" || len(snapshot.Annotations) != 1 || snapshot.Annotations[0].ID != record.ID ||
+		snapshot.Annotations[0].SourceInstance != "notes" || !strings.Contains(string(snapshot.Annotations[0].SourceProvenance), "notes/export.md") {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 

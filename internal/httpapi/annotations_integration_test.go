@@ -32,6 +32,7 @@ func TestAnnotationLifecycleRetentionCleanupAndExportWithPostgres(t *testing.T) 
 	manifest := annotationManifest("a")
 	syncHTTP(t, server.URL, manifest)
 	documentID, revisionOne := documentRevision(t, pool, projectID)
+	doJSON(t, http.MethodPost, server.URL+"/api/projects/lore/annotations", "", annotationRequest(documentID, revisionOne, strings.Repeat("b", 64), "alice"), http.StatusConflict, nil)
 	annotation := createAnnotationHTTP(t, server.URL, documentID, revisionOne, strings.Repeat("a", 64), "alice")
 	if annotation.Status != "open" || annotation.AttributedUsername != "alice" || annotation.RevisionIdentity != revisionOne {
 		t.Fatalf("created annotation = %#v", annotation)
@@ -178,16 +179,19 @@ func documentRevision(t *testing.T, pool *pgxpool.Pool, projectID uuid.UUID) (uu
 
 func createAnnotationHTTP(t *testing.T, baseURL string, documentID, revisionID uuid.UUID, hash, username string) annotationmodel.Record {
 	t.Helper()
-	request := map[string]any{
+	var record annotationmodel.Record
+	doJSON(t, http.MethodPost, baseURL+"/api/projects/lore/annotations", "", annotationRequest(documentID, revisionID, hash, username), http.StatusCreated, &record)
+	return record
+}
+
+func annotationRequest(documentID, revisionID uuid.UUID, hash, username string) map[string]any {
+	return map[string]any{
 		"documentId": documentID, "revisionId": revisionID, "body": "Review this text",
 		"attributedUsername": username, "originatingOperation": "selection",
 		"selector":      map[string]any{"kind": "text-quote", "headingPath": []string{"Introduction"}},
 		"selectedQuote": "version", "quotePrefix": "before", "quoteSuffix": "after",
 		"structuralLocation": map[string]any{"headingPath": []string{"Introduction"}}, "originalContentHash": hash,
 	}
-	var record annotationmodel.Record
-	doJSON(t, http.MethodPost, baseURL+"/api/projects/lore/annotations", "", request, http.StatusCreated, &record)
-	return record
 }
 
 func resolveAnnotation(t *testing.T, baseURL string, annotationID uuid.UUID, status, username string) {
