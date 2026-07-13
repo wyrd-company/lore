@@ -32,12 +32,12 @@ The HTTP API has three project-scoped boundaries:
 - `/api/projects/{project}/annotations`
 - `POST /api/projects/{project}/synchronizations`
 
-Browse and hybrid search are implemented, and synchronization provides the
-transactional manifest core: source-instance ownership, complete versus partial
-manifests, immutable revisions, content-hash idempotency, and complete-manifest
-deletion isolation. New revisions are chunked and keyword-indexed transactionally;
-embeddings are completed asynchronously. Ingest and administrative routes require
-their respective bearer tokens.
+Synchronization provides source-instance ownership, complete versus partial
+manifests, immutable revisions, content-hash idempotency, retention, and
+complete-manifest deletion isolation. New revisions are chunked and
+keyword-indexed transactionally; embeddings are completed asynchronously.
+Annotation reads and browser-attributed mutations are available to every project
+viewer. Ingest and administrative routes require their respective bearer tokens.
 
 ## Local development
 
@@ -173,6 +173,7 @@ GET /api/projects
 GET /api/projects/{project}/browse
 GET /api/projects/{project}/documents/{document-uuid}
 GET /api/projects/{project}/documents/{document-uuid}/revisions
+GET /api/projects/{project}/documents/{document-uuid}/revisions/{revision-uuid}
 GET /api/projects/{project}/search?q=...
 ```
 
@@ -198,6 +199,53 @@ Results expose the fused document score and each matching chunk's snippet,
 structural location, keyword/vector ranks, component scores, and fused score.
 When query embedding is unavailable, the response includes a warning and returns
 keyword-ranked results instead of failing the request.
+
+## Annotations and revision retention
+
+Annotations target an immutable revision and preserve the original content hash,
+source provenance, stable selector, structural location, selected quote, and
+surrounding quote context. Browser-supplied usernames are attribution rather than
+authenticated identities. Every create, update, status transition, copy, move,
+and cleanup records the supplied attribution in an immutable event stream.
+
+```text
+GET    /api/projects/{project}/annotations
+POST   /api/projects/{project}/annotations
+GET    /api/projects/{project}/annotations/{annotation-uuid}
+PATCH  /api/projects/{project}/annotations/{annotation-uuid}
+POST   /api/projects/{project}/annotations/{annotation-uuid}/copy
+POST   /api/projects/{project}/annotations/{annotation-uuid}/move
+GET    /api/projects/{project}/annotations/{annotation-uuid}/events
+GET    /api/projects/{project}/annotations/export?after={cursor}
+POST   /api/projects/{project}/admin/cleanup
+```
+
+Annotation listing filters accept `documentId`, `revisionId`, `status`, and an
+incremental `after` cursor. Status is `open`, `resolved`, or `dismissed`.
+
+Synchronization removes superseded revisions that have no annotations. Prior
+revisions with annotations remain renderable, including through the revision
+detail endpoint. A prior revision becomes cleanup-eligible only after none of its
+annotations remain open. The admin-protected cleanup operation removes its
+rendered revision and search data while retaining annotation tombstones with
+revision identity, body, attribution, resolution metadata, selector, provenance,
+and original hash.
+
+Export exactly one project's complete annotation snapshot as JSON:
+
+```bash
+lore annotations export --project lore --output lore-annotations.json
+```
+
+Use the returned `nextCursor` for an incremental export:
+
+```bash
+lore annotations export --project lore --after 12345 --output lore-annotations-since-12345.json
+```
+
+The stable `lore.annotations/v1` envelope contains the project, mode, cursors,
+document and revision identities, source provenance, selector, attribution,
+status, body, resolution fields, tombstone state, and timestamps.
 
 ## Source uploads
 
@@ -300,8 +348,7 @@ lore briefings contract --format json
 
 The contract output includes the stylesheet SHA-256 identity, body/fragment
 payload rules, stable annotation targets, and self-contained image and diagram
-conventions. Annotation export is reserved at `lore annotations export` for
-Milestone 4.
+conventions.
 
 ## Release conventions
 
