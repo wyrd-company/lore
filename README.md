@@ -39,30 +39,24 @@ keyword-indexed transactionally; embeddings are completed asynchronously.
 Annotation reads and browser-attributed mutations are available to every project
 viewer. Ingest and administrative routes require their respective bearer tokens.
 
-## Local development
+## Quickstart
 
 Requirements are Go 1.25.9, Node.js 22, Docker, and Task.
 
-The local `.env` supplies `AI_GATEWAY_API_KEY`. Compose also reads:
+Copy `.env.example` to `.env`, supply a real `AI_GATEWAY_API_KEY`, and replace
+the ingest and admin tokens outside local development. `DATABASE_URL` defaults
+to the Compose PostgreSQL service; `PUBLIC_BASE_URL` is the browser-visible
+origin. `LORE_WATCH_CONFIG` and `LORE_SOURCE_ROOT` configure the optional
+watcher container.
 
-```text
-DATABASE_URL
-LORE_INGEST_TOKEN
-LORE_ADMIN_TOKEN
-PUBLIC_BASE_URL
-```
-
-Start PostgreSQL and apply migrations explicitly:
+Start PostgreSQL, apply migrations explicitly, and launch the application:
 
 ```bash
-task database:up
-task migrate
-```
-
-Run the server with the web application embedded:
-
-```bash
-task dev
+cp .env.example .env
+# Edit .env before continuing.
+docker compose up -d --wait postgres
+docker compose run --rm lore-server migrate
+docker compose up -d --build --wait lore-server
 ```
 
 The application is available at <http://localhost:8080>. Migrations are never
@@ -82,11 +76,11 @@ task build
 task ci
 ```
 
-To deploy the complete local stack:
+For source development, the equivalent Task workflow is:
 
 ```bash
 task migrate
-docker compose up -d --build --wait
+task dev
 ```
 
 Create the first project through the admin-protected bootstrap path before its
@@ -104,6 +98,52 @@ containing `slug` and `name`.
 
 The published image is `ghcr.io/wyrd-company/lore`. It contains both
 `lore-server` and `lore`; its default entry point starts the server.
+
+### Environment configuration
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | server, migrations | PostgreSQL connection string |
+| `AI_GATEWAY_API_KEY` | server | Vercel AI Gateway embeddings; keyword search remains available without it |
+| `LORE_INGEST_TOKEN` | server, CLI, watcher | Bearer token for synchronization |
+| `LORE_ADMIN_TOKEN` | server, CLI | Bearer token for project bootstrap and revision cleanup |
+| `PUBLIC_BASE_URL` | server, CLI fallback | Browser-visible Lore origin |
+| `LORE_LISTEN_ADDRESS` | server | HTTP bind address; defaults to `:8080` |
+| `LORE_SERVER_URL` | CLI, watcher | Server URL; overrides `PUBLIC_BASE_URL` |
+| `PROJECT` | CLI | Optional project flag/fallback value |
+
+### Compose deployment with watchers
+
+The image also contains the `lore` watcher executable. Create
+`lore-watch.yml` with container paths beneath `/sources`, set
+`LORE_SOURCE_ROOT` to their common host directory, then start the optional
+Compose profile:
+
+```bash
+docker compose up -d --wait postgres
+docker compose run --rm lore-server migrate
+docker compose up -d --build --wait lore-server
+LORE_WATCH_CONFIG=./lore-watch.yml LORE_SOURCE_ROOT=/workspaces \
+  docker compose --profile watch up -d --build lore-watcher
+```
+
+Run additional watcher services from the same image when sources require
+different mounts or credentials. Mount source directories read-only and give
+each projection a stable `source-instance`. Cloudflare Tunnel and Cloudflare
+Zero Trust exposure are intentionally out of scope; place the deployment behind
+the network boundary appropriate to the installation.
+
+## CLI usage
+
+```text
+lore projects create --slug <slug> --name <name>
+lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
+lore watch --config <path>
+lore annotations export --project <project> [--after <cursor>] [--output <path>]
+lore briefings <show-css|show-skill|write-css|write-skill|contract>
+lore migrate
+lore version
+```
 
 ## Synchronization manifest
 
@@ -268,12 +308,14 @@ Repository uploads derive the repository and branch from Git when possible;
 other UTF-8 text files use their respective shared renderers.
 
 Conversation uploads scan Claude or Codex JSONL session directories and upload
-only sessions that resolve to a project:
+only sessions that resolve to a project. Use `--complete` for an authoritative
+directory scan so sessions removed from disk are removed from that source
+instance; omit it only for an intentionally partial upload:
 
 ```bash
-lore upload conversations --source-instance claude --provider claude \
+lore upload conversations --source-instance claude --provider claude --complete \
   --mapping lore-projects.yml ~/.claude/projects
-lore upload conversations --source-instance codex --provider codex \
+lore upload conversations --source-instance codex --provider codex --complete \
   --mapping lore-projects.yml ~/.codex/sessions
 ```
 
@@ -291,7 +333,9 @@ repositories:
 allowProjectFallback: false
 ```
 
-Unassigned sessions are reported and are not uploaded. Normalized conversation
+Malformed or unknown JSONL records are skipped with filename-and-line warnings;
+the remaining session is still uploaded. Unassigned sessions are reported and
+are not uploaded. Normalized conversation
 documents retain user, assistant, and collapsed assistant-thinking messages;
 instructions, tool traffic, and provider bookkeeping are excluded.
 
