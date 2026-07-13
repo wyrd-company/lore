@@ -57,18 +57,27 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 	repository := NewRepository(pool)
 
 	manifest := Manifest{
-		Project: "lore", SourceInstance: "notes", SourceType: "note", Boundary: BoundaryComplete,
+		Project: "lore", SourceInstance: "tasks", SourceType: "task", Boundary: BoundaryComplete,
 		Documents: []Document{
 			documentFixture("one", "a"),
 			documentFixture("two", "b"),
 		},
+		Relationships: []Relationship{{SourceIdentity: "two", TargetIdentity: "one", Type: "task-depends-on"}},
 	}
+	manifest.Documents[0].Tags = []string{"architecture", "lore"}
 	result, err := repository.Apply(ctx, projectID, manifest)
 	if err != nil {
 		t.Fatalf("initial apply: %v", err)
 	}
 	if result.Created != 2 || result.Updated != 0 || result.Deleted != 0 {
 		t.Fatalf("unexpected initial result: %+v", result)
+	}
+	var tagLinks, relationships int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM document_tags`).Scan(&tagLinks); err != nil || tagLinks != 2 {
+		t.Fatalf("tag links = %d, err = %v", tagLinks, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM relationships`).Scan(&relationships); err != nil || relationships != 1 {
+		t.Fatalf("relationships = %d, err = %v", relationships, err)
 	}
 
 	result, err = repository.Apply(ctx, projectID, manifest)
@@ -86,6 +95,7 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 	partial := manifest
 	partial.Boundary = BoundaryPartial
 	partial.Documents = []Document{documentFixture("one", "c")}
+	partial.Relationships = nil
 	result, err = repository.Apply(ctx, projectID, partial)
 	if err != nil {
 		t.Fatalf("partial apply: %v", err)
@@ -94,6 +104,9 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 		t.Fatalf("unexpected partial result: %+v", result)
 	}
 	assertCurrentDocuments(t, ctx, pool, 2)
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM relationships`).Scan(&relationships); err != nil || relationships != 1 {
+		t.Fatalf("partial sync changed sibling relationships: count=%d err=%v", relationships, err)
+	}
 
 	complete := partial
 	complete.Boundary = BoundaryComplete

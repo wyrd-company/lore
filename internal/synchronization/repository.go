@@ -51,11 +51,16 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 	}
 
 	identities := make([]string, 0, len(manifest.Documents))
+	documentIDs := make(map[string]uuid.UUID, len(manifest.Documents))
 	for _, document := range manifest.Documents {
 		identities = append(identities, document.Identity)
-		created, changed, unchanged, applyErr := applyDocument(ctx, tx, projectID, sourceInstanceID, manifest.SourceType, document)
+		documentID, created, changed, unchanged, applyErr := applyDocument(ctx, tx, projectID, sourceInstanceID, manifest.SourceType, document)
 		if applyErr != nil {
 			return result, applyErr
+		}
+		documentIDs[document.Identity] = documentID
+		if applyErr := replaceTags(ctx, tx, projectID, documentID, document.Tags); applyErr != nil {
+			return result, fmt.Errorf("replace tags for %q: %w", document.Identity, applyErr)
 		}
 		if created {
 			result.Created++
@@ -82,6 +87,9 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 			return result, fmt.Errorf("record complete synchronization: %w", err)
 		}
 	}
+	if err = replaceRelationships(ctx, tx, projectID, sourceInstanceID, manifest.Boundary, documentIDs, manifest.Relationships); err != nil {
+		return result, err
+	}
 
 	if err = tx.Commit(ctx); err != nil {
 		return result, fmt.Errorf("commit synchronization: %w", err)
@@ -89,8 +97,7 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 	return result, nil
 }
 
-func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID uuid.UUID, sourceType string, document Document) (created, changed, unchanged bool, err error) {
-	var documentID uuid.UUID
+func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID uuid.UUID, sourceType string, document Document) (documentID uuid.UUID, created, changed, unchanged bool, err error) {
 	var currentRevisionID *uuid.UUID
 	var inserted bool
 	err = tx.QueryRow(ctx, `
@@ -101,16 +108,16 @@ func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID u
 		RETURNING id, current_revision_id, (xmax = 0)`, projectID, sourceInstanceID, sourceType, document.Identity, document.Title).
 		Scan(&documentID, &currentRevisionID, &inserted)
 	if err != nil {
-		return false, false, false, fmt.Errorf("upsert document %q: %w", document.Identity, err)
+		return uuid.Nil, false, false, false, fmt.Errorf("upsert document %q: %w", document.Identity, err)
 	}
 
 	if currentRevisionID != nil {
 		var currentHash string
 		if err := tx.QueryRow(ctx, `SELECT content_hash FROM revisions WHERE id = $1 AND document_id = $2`, *currentRevisionID, documentID).Scan(&currentHash); err != nil {
-			return false, false, false, fmt.Errorf("read current revision for %q: %w", document.Identity, err)
+			return uuid.Nil, false, false, false, fmt.Errorf("read current revision for %q: %w", document.Identity, err)
 		}
 		if currentHash == document.ContentHash {
-			return inserted, false, true, nil
+			return documentID, inserted, false, true, nil
 		}
 	}
 
@@ -127,7 +134,7 @@ func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID u
 		err = tx.QueryRow(ctx, `SELECT id FROM revisions WHERE document_id = $1 AND content_hash = $2`, documentID, document.ContentHash).Scan(&revisionID)
 	}
 	if err != nil {
-		return false, false, false, fmt.Errorf("create revision for %q: %w", document.Identity, err)
+		return uuid.Nil, false, false, false, fmt.Errorf("create revision for %q: %w", document.Identity, err)
 	}
 
 	if newRevision {
@@ -136,13 +143,68 @@ func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID u
 				INSERT INTO chunks (project_id, revision_id, ordinal, normalized_text, structural_location, token_count)
 				VALUES ($1, $2, $3, $4, $5, $6)`, projectID, revisionID, chunk.Ordinal, chunk.NormalizedText,
 				jsonOrEmpty(chunk.StructuralLocation), chunk.TokenCount); err != nil {
-				return false, false, false, fmt.Errorf("create chunk %d for %q: %w", chunk.Ordinal, document.Identity, err)
+				return uuid.Nil, false, false, false, fmt.Errorf("create chunk %d for %q: %w", chunk.Ordinal, document.Identity, err)
 			}
 		}
 	}
 
 	if _, err := tx.Exec(ctx, `UPDATE documents SET current_revision_id = $1, deleted_at = NULL, updated_at = now() WHERE id = $2`, revisionID, documentID); err != nil {
-		return false, false, false, fmt.Errorf("make revision current for %q: %w", document.Identity, err)
+		return uuid.Nil, false, false, false, fmt.Errorf("make revision current for %q: %w", document.Identity, err)
 	}
-	return inserted, !inserted, false, nil
+	return documentID, inserted, !inserted, false, nil
+}
+
+func replaceTags(ctx context.Context, tx pgx.Tx, projectID, documentID uuid.UUID, tags []string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM document_tags WHERE project_id = $1 AND document_id = $2`, projectID, documentID); err != nil {
+		return err
+	}
+	for _, name := range tags {
+		var tagID uuid.UUID
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO tags (project_id, name) VALUES ($1, $2)
+			ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id`, projectID, name).Scan(&tagID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO document_tags (project_id, document_id, tag_id) VALUES ($1, $2, $3)`, projectID, documentID, tagID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func replaceRelationships(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID uuid.UUID, boundary Boundary, documentIDs map[string]uuid.UUID, relationships []Relationship) error {
+	if boundary == BoundaryComplete {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM relationships
+			WHERE project_id = $1
+			  AND source_document_id IN (SELECT id FROM documents WHERE source_instance_id = $2)`, projectID, sourceInstanceID); err != nil {
+			return fmt.Errorf("clear complete-manifest relationships: %w", err)
+		}
+	} else {
+		ids := make([]uuid.UUID, 0, len(documentIDs))
+		for _, id := range documentIDs {
+			ids = append(ids, id)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM relationships WHERE project_id = $1 AND source_document_id = ANY($2::uuid[])`, projectID, ids); err != nil {
+			return fmt.Errorf("clear partial-manifest relationships: %w", err)
+		}
+	}
+
+	for _, relationship := range relationships {
+		sourceID := documentIDs[relationship.SourceIdentity]
+		var targetID uuid.UUID
+		if err := tx.QueryRow(ctx, `
+			SELECT id FROM documents
+			WHERE project_id = $1 AND source_instance_id = $2 AND source_identity = $3 AND deleted_at IS NULL`,
+			projectID, sourceInstanceID, relationship.TargetIdentity).Scan(&targetID); err != nil {
+			return fmt.Errorf("resolve relationship target %q: %w", relationship.TargetIdentity, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO relationships (project_id, source_document_id, target_document_id, relationship_type, metadata)
+			VALUES ($1, $2, $3, $4, $5)`, projectID, sourceID, targetID, relationship.Type, jsonOrEmpty(relationship.Metadata)); err != nil {
+			return fmt.Errorf("create relationship %q -> %q: %w", relationship.SourceIdentity, relationship.TargetIdentity, err)
+		}
+	}
+	return nil
 }
