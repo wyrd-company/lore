@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/wyrd-company/lore/internal/indexing"
 )
 
 type Repository struct {
@@ -54,13 +56,25 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 	documentIDs := make(map[string]uuid.UUID, len(manifest.Documents))
 	for _, document := range manifest.Documents {
 		identities = append(identities, document.Identity)
-		documentID, created, changed, unchanged, applyErr := applyDocument(ctx, tx, projectID, sourceInstanceID, manifest.SourceType, document)
+		documentID, revisionID, newRevision, created, changed, unchanged, applyErr := applyDocument(ctx, tx, projectID, sourceInstanceID, manifest.SourceType, document)
 		if applyErr != nil {
 			return result, applyErr
 		}
 		documentIDs[document.Identity] = documentID
 		if applyErr := replaceTags(ctx, tx, projectID, documentID, document.Tags); applyErr != nil {
 			return result, fmt.Errorf("replace tags for %q: %w", document.Identity, applyErr)
+		}
+		indexInput := indexing.RevisionInput{
+			ProjectID: projectID, RevisionID: revisionID, SourceType: manifest.SourceType,
+			Title: document.Title, NormalizedText: document.NormalizedText, Metadata: document.Metadata, Tags: document.Tags,
+		}
+		if newRevision {
+			applyErr = indexing.IndexRevision(ctx, tx, indexInput)
+		} else {
+			applyErr = indexing.RefreshKeywords(ctx, tx, indexInput)
+		}
+		if applyErr != nil {
+			return result, fmt.Errorf("index document %q: %w", document.Identity, applyErr)
 		}
 		if created {
 			result.Created++
@@ -97,7 +111,7 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 	return result, nil
 }
 
-func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID uuid.UUID, sourceType string, document Document) (documentID uuid.UUID, created, changed, unchanged bool, err error) {
+func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID uuid.UUID, sourceType string, document Document) (documentID, revisionID uuid.UUID, newRevision, created, changed, unchanged bool, err error) {
 	var currentRevisionID *uuid.UUID
 	var inserted bool
 	err = tx.QueryRow(ctx, `
@@ -108,50 +122,38 @@ func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID u
 		RETURNING id, current_revision_id, (xmax = 0)`, projectID, sourceInstanceID, sourceType, document.Identity, document.Title).
 		Scan(&documentID, &currentRevisionID, &inserted)
 	if err != nil {
-		return uuid.Nil, false, false, false, fmt.Errorf("upsert document %q: %w", document.Identity, err)
+		return uuid.Nil, uuid.Nil, false, false, false, false, fmt.Errorf("upsert document %q: %w", document.Identity, err)
 	}
 
 	if currentRevisionID != nil {
 		var currentHash string
 		if err := tx.QueryRow(ctx, `SELECT content_hash FROM revisions WHERE id = $1 AND document_id = $2`, *currentRevisionID, documentID).Scan(&currentHash); err != nil {
-			return uuid.Nil, false, false, false, fmt.Errorf("read current revision for %q: %w", document.Identity, err)
+			return uuid.Nil, uuid.Nil, false, false, false, false, fmt.Errorf("read current revision for %q: %w", document.Identity, err)
 		}
 		if currentHash == document.ContentHash {
-			return documentID, inserted, false, true, nil
+			return documentID, *currentRevisionID, false, inserted, false, true, nil
 		}
 	}
 
-	var revisionID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO revisions (project_id, document_id, content_hash, normalized_text, rendered_content, renderer, metadata, provenance)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (document_id, content_hash) DO NOTHING
 		RETURNING id`, projectID, documentID, document.ContentHash, document.NormalizedText, document.RenderedContent,
 		document.Renderer, jsonOrEmpty(document.Metadata), jsonOrEmpty(document.Provenance)).Scan(&revisionID)
-	newRevision := true
+	newRevision = true
 	if errors.Is(err, pgx.ErrNoRows) {
 		newRevision = false
 		err = tx.QueryRow(ctx, `SELECT id FROM revisions WHERE document_id = $1 AND content_hash = $2`, documentID, document.ContentHash).Scan(&revisionID)
 	}
 	if err != nil {
-		return uuid.Nil, false, false, false, fmt.Errorf("create revision for %q: %w", document.Identity, err)
-	}
-
-	if newRevision {
-		for _, chunk := range document.Chunks {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO chunks (project_id, revision_id, ordinal, normalized_text, structural_location, token_count)
-				VALUES ($1, $2, $3, $4, $5, $6)`, projectID, revisionID, chunk.Ordinal, chunk.NormalizedText,
-				jsonOrEmpty(chunk.StructuralLocation), chunk.TokenCount); err != nil {
-				return uuid.Nil, false, false, false, fmt.Errorf("create chunk %d for %q: %w", chunk.Ordinal, document.Identity, err)
-			}
-		}
+		return uuid.Nil, uuid.Nil, false, false, false, false, fmt.Errorf("create revision for %q: %w", document.Identity, err)
 	}
 
 	if _, err := tx.Exec(ctx, `UPDATE documents SET current_revision_id = $1, deleted_at = NULL, updated_at = now() WHERE id = $2`, revisionID, documentID); err != nil {
-		return uuid.Nil, false, false, false, fmt.Errorf("make revision current for %q: %w", document.Identity, err)
+		return uuid.Nil, uuid.Nil, false, false, false, false, fmt.Errorf("make revision current for %q: %w", document.Identity, err)
 	}
-	return documentID, inserted, !inserted, false, nil
+	return documentID, revisionID, newRevision, inserted, !inserted, false, nil
 }
 
 func replaceTags(ctx context.Context, tx pgx.Tx, projectID, documentID uuid.UUID, tags []string) error {

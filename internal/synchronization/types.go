@@ -34,7 +34,6 @@ type Document struct {
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	Provenance      json.RawMessage `json:"provenance,omitempty"`
 	Tags            []string        `json:"tags,omitempty"`
-	Chunks          []Chunk         `json:"chunks,omitempty"`
 }
 
 type Relationship struct {
@@ -42,13 +41,6 @@ type Relationship struct {
 	TargetIdentity string          `json:"targetIdentity"`
 	Type           string          `json:"type"`
 	Metadata       json.RawMessage `json:"metadata,omitempty"`
-}
-
-type Chunk struct {
-	Ordinal            int             `json:"ordinal"`
-	NormalizedText     string          `json:"normalizedText"`
-	StructuralLocation json.RawMessage `json:"structuralLocation,omitempty"`
-	TokenCount         *int            `json:"tokenCount,omitempty"`
 }
 
 type Result struct {
@@ -113,14 +105,6 @@ func (m Manifest) Validate() error {
 				return fmt.Errorf("documents[%d] contains duplicate tag %q", i, tag)
 			}
 			tags[tag] = struct{}{}
-		}
-		for j, chunk := range document.Chunks {
-			if chunk.Ordinal < 0 {
-				return fmt.Errorf("documents[%d].chunks[%d].ordinal must not be negative", i, j)
-			}
-			if chunk.TokenCount != nil && *chunk.TokenCount < 0 {
-				return fmt.Errorf("documents[%d].chunks[%d].tokenCount must not be negative", i, j)
-			}
 		}
 	}
 	seenRelationships := make(map[string]struct{}, len(m.Relationships))

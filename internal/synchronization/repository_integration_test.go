@@ -79,6 +79,13 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM relationships`).Scan(&relationships); err != nil || relationships != 1 {
 		t.Fatalf("relationships = %d, err = %v", relationships, err)
 	}
+	var chunks, embeddingJobs int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM chunks`).Scan(&chunks); err != nil || chunks != 2 {
+		t.Fatalf("chunks = %d, err = %v", chunks, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM embedding_jobs`).Scan(&embeddingJobs); err != nil || embeddingJobs != 2 {
+		t.Fatalf("embedding jobs = %d, err = %v", embeddingJobs, err)
+	}
 
 	result, err = repository.Apply(ctx, projectID, manifest)
 	if err != nil {
@@ -134,11 +141,9 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 	assertCurrentDocuments(t, ctx, pool, 1)
 
 	broken := Manifest{
-		Project: "lore", SourceInstance: "broken", SourceType: "note", Boundary: BoundaryPartial,
-		Documents: []Document{{
-			Identity: "rollback", Title: "Rollback", ContentHash: strings.Repeat("e", 64), Renderer: "markdown",
-			Chunks: []Chunk{{Ordinal: 0}, {Ordinal: 0}},
-		}},
+		Project: "lore", SourceInstance: "broken", SourceType: "task", Boundary: BoundaryPartial,
+		Documents:     []Document{{Identity: "rollback", Title: "Rollback", ContentHash: strings.Repeat("e", 64), Renderer: "markdown", NormalizedText: "rollback"}},
+		Relationships: []Relationship{{SourceIdentity: "rollback", TargetIdentity: "missing", Type: "task-depends-on"}},
 	}
 	if _, err := repository.Apply(ctx, projectID, broken); err == nil {
 		t.Fatal("expected duplicate chunk transaction to fail")
@@ -153,7 +158,6 @@ func documentFixture(identity, hashCharacter string) Document {
 	return Document{
 		Identity: identity, Title: strings.ToUpper(identity), ContentHash: strings.Repeat(hashCharacter, 64),
 		NormalizedText: identity, RenderedContent: "<p>" + identity + "</p>", Renderer: "markdown",
-		Chunks: []Chunk{{Ordinal: 0, NormalizedText: identity}},
 	}
 }
 
