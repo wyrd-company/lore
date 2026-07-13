@@ -29,6 +29,11 @@ func Migrate(ctx context.Context, databaseURL string) error {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
 	defer conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, migrationLockID) //nolint:errcheck
+	if _, err := conn.Exec(ctx, `
+		CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+		CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;`); err != nil {
+		return fmt.Errorf("install database extensions: %w", err)
+	}
 
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version bigint PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return fmt.Errorf("create migration ledger: %w", err)
