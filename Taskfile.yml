@@ -40,13 +40,13 @@ tasks:
   format:
     desc: Format Go source
     cmds:
-      - gofmt -w cmd internal web/assets.go
+      - gofmt -w cmd internal design/assets.go web/assets.go
 
   lint:
     desc: Check formatting, Go analysis, and TypeScript
     deps: [web:install]
     cmds:
-      - test -z "$(gofmt -l cmd internal web/assets.go)"
+      - test -z "$(gofmt -l cmd internal design/assets.go web/assets.go)"
       - go vet ./...
       - npm run lint --prefix web
 

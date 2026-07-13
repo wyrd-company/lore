@@ -19,7 +19,8 @@ documented in [`docs/technical-designs/system.yml`](docs/technical-designs/syste
 ## Components
 
 - `lore-server`: HTTP API and embedded React application.
-- `lore`: command-line client and explicit migration entry point.
+- `lore`: source upload and watch client, briefing authoring resources, and
+  explicit migration entry point.
 - PostgreSQL with pgvector: projects, source instances, documents, immutable
   revisions, chunks, task relationships, tags, annotations, and 1024-dimension
   `voyage/voyage-4` embeddings.
@@ -121,6 +122,110 @@ The ingest endpoint accepts a manifest shaped as follows:
 A `complete` manifest marks documents absent from that same source instance as
 deleted. A `partial` manifest never deletes siblings. Matching current content
 hashes do not create revisions or chunks.
+
+## Source uploads
+
+Every upload names a stable project source instance. One-shot uploads are
+partial by default, so they cannot delete sibling documents; add `--complete`
+when the path is the authoritative projection of that source.
+
+```bash
+export LORE_SERVER_URL=http://localhost:8080
+export LORE_INGEST_TOKEN=local-ingest-token
+
+lore upload tasks --project refinery --source-instance kanban --complete /workspaces/kanban
+lore upload notes --project refinery --source-instance mnemonic --complete /memory/.mnemonic/notes
+lore upload briefing --project refinery --source-instance weekly --title "Weekly briefing" briefing.html
+lore upload repository --project lore --source-instance repository docs README.md
+```
+
+Repository uploads derive the repository and branch from Git when possible;
+`--repository` and `--branch` provide explicit overrides. Markdown, YAML, and
+other UTF-8 text files use their respective shared renderers.
+
+Conversation uploads scan Claude or Codex JSONL session directories and upload
+only sessions that resolve to a project:
+
+```bash
+lore upload conversations --source-instance claude --provider claude \
+  --mapping lore-projects.yml ~/.claude/projects
+lore upload conversations --source-instance codex --provider codex \
+  --mapping lore-projects.yml ~/.codex/sessions
+```
+
+The mapping file supports exact session IDs, longest working-directory prefix
+matches, repository mappings, and an explicitly enabled `PROJECT` fallback:
+
+```yaml
+sessions:
+  session-uuid: lore
+paths:
+  - prefix: /workspaces/tools/lore
+    project: lore
+repositories:
+  git@github.com:wyrd-company/lore.git: lore
+allowProjectFallback: false
+```
+
+Unassigned sessions are reported and are not uploaded. Normalized conversation
+documents retain user, assistant, and collapsed assistant-thinking messages;
+instructions, tool traffic, and provider bookkeeping are excluded.
+
+## Continuous synchronization
+
+`lore watch` performs a complete scan at startup, debounces filesystem events,
+and periodically runs another complete scan to recover missed events. Each
+source retries independently with bounded exponential backoff.
+
+The concise design layout is supported directly:
+
+```yaml
+project: refinery
+debounce: 750ms
+rescan-interval: 15m
+sources:
+  tasks: /sources/refinery/tasks
+  notes: /sources/refinery/notes
+```
+
+Expanded source entries can set every adapter input explicitly:
+
+```yaml
+sources:
+  - project: refinery
+    source-instance: mnemonic-notes
+    adapter: notes
+    path: /sources/refinery/notes
+  - source-instance: codex-sessions
+    adapter: conversations
+    provider: codex
+    path: /sources/codex
+    mapping: /config/lore-projects.yml
+```
+
+Run it with:
+
+```bash
+lore watch --config lore-watch.yml
+```
+
+## Briefing authoring contract
+
+The CLI embeds the exact release-aligned application stylesheet and a concise
+agent authoring skill for trusted `.lore-prose` HTML briefings:
+
+```bash
+lore briefings show-css
+lore briefings show-skill
+lore briefings write-css ./site.css
+lore briefings write-skill ./lore-briefing-skill.md
+lore briefings contract --format json
+```
+
+The contract output includes the stylesheet SHA-256 identity, body/fragment
+payload rules, stable annotation targets, and self-contained image and diagram
+conventions. Annotation export is reserved at `lore annotations export` for
+Milestone 4.
 
 ## Release conventions
 
