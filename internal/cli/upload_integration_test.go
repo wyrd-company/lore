@@ -19,7 +19,7 @@ import (
 	"github.com/wyrd-company/lore/internal/httpapi"
 )
 
-func TestTaskUploadThroughCLIAndServerWithPostgres(t *testing.T) {
+func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not set; real PostgreSQL integration test skipped")
@@ -61,13 +61,18 @@ func TestTaskUploadThroughCLIAndServerWithPostgres(t *testing.T) {
 	defer server.Close()
 	var output bytes.Buffer
 	runner := New(&output, &output)
-	fixture := filepath.Join("..", "adapters", "testdata", "kanban")
-	err = runner.Run(ctx, []string{
-		"upload", "tasks", "--project", "lore", "--source-instance", "kanban", "--complete",
-		"--server", server.URL, "--token", "ingest-secret", fixture,
-	})
-	if err != nil {
-		t.Fatalf("CLI upload: %v\n%s", err, output.String())
+	fixtures := filepath.Join("..", "adapters", "testdata")
+	uploads := [][]string{
+		{"upload", "tasks", "--project", "lore", "--source-instance", "kanban", "--complete", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "kanban")},
+		{"upload", "notes", "--project", "lore", "--source-instance", "mnemonic", "--complete", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "notes")},
+		{"upload", "briefing", "--project", "lore", "--source-instance", "architecture", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "briefing", "architecture.html")},
+		{"upload", "repository", "--project", "lore", "--source-instance", "fixture-repository", "--repository", "wyrd-company/fixture", "--branch", "main", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "repository")},
+		{"upload", "conversations", "--source-instance", "codex", "--provider", "codex", "--server", server.URL, "--token", "ingest-secret", filepath.Join(fixtures, "conversations", "codex")},
+	}
+	for _, arguments := range uploads {
+		if err := runner.Run(ctx, arguments); err != nil {
+			t.Fatalf("CLI upload %s: %v\n%s", arguments[1], err, output.String())
+		}
 	}
 	var documents, revisions, tags, relationships int
 	row := pool.QueryRow(ctx, `SELECT
@@ -78,10 +83,30 @@ func TestTaskUploadThroughCLIAndServerWithPostgres(t *testing.T) {
 	if err := row.Scan(&documents, &revisions, &tags, &relationships); err != nil {
 		t.Fatal(err)
 	}
-	if documents != 2 || revisions != 2 || tags == 0 || relationships != 1 {
+	if documents != 7 || revisions != 7 || tags == 0 || relationships != 1 {
 		t.Fatalf("unexpected persistence: documents=%d revisions=%d tags=%d relationships=%d", documents, revisions, tags, relationships)
 	}
 	if !strings.Contains(output.String(), "2 created") {
 		t.Fatalf("unexpected CLI output: %s", output.String())
+	}
+	rows, err := pool.Query(ctx, `SELECT source_type, count(*) FROM documents WHERE deleted_at IS NULL GROUP BY source_type`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	counts := make(map[string]int)
+	for rows.Next() {
+		var sourceType string
+		var count int
+		if err := rows.Scan(&sourceType, &count); err != nil {
+			t.Fatal(err)
+		}
+		counts[sourceType] = count
+	}
+	want := map[string]int{"task": 2, "note": 1, "briefing": 1, "repository": 2, "conversation": 1}
+	for sourceType, count := range want {
+		if counts[sourceType] != count {
+			t.Fatalf("%s documents = %d, want %d (all: %#v)", sourceType, counts[sourceType], count, counts)
+		}
 	}
 }
