@@ -176,7 +176,7 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	if err := os.WriteFile(notePath, append(note, []byte("\nWatcher update.\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	waitForCount(t, ctx, pool, `SELECT count(*) FROM revisions r JOIN documents d ON d.id = r.document_id JOIN source_instances s ON s.id = d.source_instance_id WHERE s.external_key = 'watched-notes'`, 2)
+	waitForCount(t, ctx, pool, `SELECT count(*) FROM revisions r JOIN documents d ON d.current_revision_id = r.id JOIN source_instances s ON s.id = d.source_instance_id WHERE s.external_key = 'watched-notes' AND r.normalized_text LIKE '%Watcher update.%'`, 1)
 	stopWatch()
 	select {
 	case err := <-watchResult:

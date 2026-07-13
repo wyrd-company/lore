@@ -92,17 +92,34 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 	}
 
 	if manifest.Boundary == BoundaryComplete {
-		commandTag, deleteErr := tx.Exec(ctx, `
+		rows, deleteErr := tx.Query(ctx, `
 			UPDATE documents
-			SET deleted_at = now(), updated_at = now()
+			SET current_revision_id = NULL, deleted_at = now(), updated_at = now()
 			WHERE project_id = $1
 			  AND source_instance_id = $2
 			  AND deleted_at IS NULL
-			  AND NOT (source_identity = ANY($3::text[]))`, projectID, sourceInstanceID, identities)
+			  AND NOT (source_identity = ANY($3::text[]))
+			RETURNING id`, projectID, sourceInstanceID, identities)
 		if deleteErr != nil {
 			return result, fmt.Errorf("delete documents absent from complete manifest: %w", deleteErr)
 		}
-		result.Deleted = int(commandTag.RowsAffected())
+		deletedDocumentIDs := make([]uuid.UUID, 0)
+		for rows.Next() {
+			var documentID uuid.UUID
+			if err := rows.Scan(&documentID); err != nil {
+				rows.Close()
+				return result, fmt.Errorf("read deleted document: %w", err)
+			}
+			deletedDocumentIDs = append(deletedDocumentIDs, documentID)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return result, fmt.Errorf("read deleted documents: %w", err)
+		}
+		result.Deleted = len(deletedDocumentIDs)
+		if err := deleteUnannotatedRevisions(ctx, tx, projectID, deletedDocumentIDs, uuid.Nil); err != nil {
+			return result, fmt.Errorf("retain annotated deleted documents: %w", err)
+		}
 		if _, err = tx.Exec(ctx, `UPDATE source_instances SET last_complete_sync_at = now(), updated_at = now() WHERE id = $1`, sourceInstanceID); err != nil {
 			return result, fmt.Errorf("record complete synchronization: %w", err)
 		}
@@ -159,7 +176,24 @@ func applyDocument(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID u
 	if _, err := tx.Exec(ctx, `UPDATE documents SET current_revision_id = $1, deleted_at = NULL, updated_at = now() WHERE id = $2`, revisionID, documentID); err != nil {
 		return uuid.Nil, uuid.Nil, false, false, false, false, fmt.Errorf("make revision current for %q: %w", document.Identity, err)
 	}
+	if err := deleteUnannotatedRevisions(ctx, tx, projectID, []uuid.UUID{documentID}, revisionID); err != nil {
+		return uuid.Nil, uuid.Nil, false, false, false, false, fmt.Errorf("remove superseded revisions for %q: %w", document.Identity, err)
+	}
 	return documentID, revisionID, newRevision, inserted, !inserted, false, nil
+}
+
+func deleteUnannotatedRevisions(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, documentIDs []uuid.UUID, retainedRevisionID uuid.UUID) error {
+	if len(documentIDs) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		DELETE FROM revisions r
+		WHERE r.project_id = $1
+		  AND r.document_id = ANY($2::uuid[])
+		  AND ($3::uuid = '00000000-0000-0000-0000-000000000000' OR r.id <> $3)
+		  AND NOT EXISTS (SELECT 1 FROM annotations a WHERE a.project_id = r.project_id AND a.revision_id = r.id)`,
+		projectID, documentIDs, retainedRevisionID)
+	return err
 }
 
 func replaceTags(ctx context.Context, tx pgx.Tx, projectID, documentID uuid.UUID, tags []string) error {
