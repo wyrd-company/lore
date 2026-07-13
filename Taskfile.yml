@@ -40,14 +40,15 @@ tasks:
   format:
     desc: Format Go source
     cmds:
-      - gofmt -w cmd internal design/assets.go web/assets.go
+      - gofmt -w cmd internal e2e design/assets.go web/assets.go
 
   lint:
     desc: Check formatting, Go analysis, and TypeScript
     deps: [web:install]
     cmds:
-      - test -z "$(gofmt -l cmd internal design/assets.go web/assets.go)"
+      - test -z "$(gofmt -l cmd internal e2e design/assets.go web/assets.go)"
       - go vet ./...
+      - go vet -tags=e2e ./e2e/...
       - npm run lint --prefix web
 
   database:up:
@@ -81,7 +82,7 @@ tasks:
       - go build -trimpath -ldflags "-X github.com/wyrd-company/lore/internal/version.Value={{.VERSION}}" -o bin/lore-server ./cmd/lore-server
 
   e2e:
-    desc: Exercise the embedded web interface through a real browser and PostgreSQL
+    desc: Run the no-mocks gate through real CLI, PostgreSQL, server, AI Gateway, and browser
     deps: [database:up, build]
     env:
       TEST_DATABASE_URL: "{{.LOCAL_DATABASE_URL}}"

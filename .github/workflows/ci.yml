@@ -46,8 +46,9 @@ jobs:
         working-directory: web
       - name: Format and analyze
         run: |
-          test -z "$(gofmt -l cmd internal web/assets.go)"
+          test -z "$(gofmt -l cmd internal e2e design/assets.go web/assets.go)"
           go vet ./...
+          go vet -tags=e2e ./e2e/...
           npm run lint --prefix web
       - name: Test with PostgreSQL
         run: |
@@ -64,8 +65,9 @@ jobs:
       - name: Install browser
         run: npx playwright install --with-deps chromium
         working-directory: web
-      - name: Browser smoke test
+      - name: Real-service end-to-end gate
         run: ./scripts/e2e-web.sh
         env:
           TEST_DATABASE_URL: postgres://lore:lore@localhost:5432/lore?sslmode=disable
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
       - run: docker build --build-arg VERSION="$(cat VERSION)" -t lore:ci .
