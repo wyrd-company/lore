@@ -3,7 +3,10 @@ board:
   name: Lore fixture
 tasks_dir: tasks
 statuses:
-  - name: backlog
   - name: done
+  - name: Ready for deploy
+  - name: backlog
+  - name: archived
+  - name: in progress
 priorities: [low, medium, high]
 next_id: 3

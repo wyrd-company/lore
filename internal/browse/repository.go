@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,18 +37,21 @@ type SourceSummary struct {
 }
 
 type DocumentSummary struct {
-	ID                 uuid.UUID       `json:"id"`
-	SourceType         string          `json:"sourceType"`
-	SourceInstance     string          `json:"sourceInstance"`
-	SourceIdentity     string          `json:"sourceIdentity"`
-	Title              string          `json:"title"`
-	RevisionID         uuid.UUID       `json:"revisionId"`
-	Metadata           json.RawMessage `json:"metadata"`
-	Tags               []string        `json:"tags"`
-	CreatedAt          time.Time       `json:"createdAt"`
-	UpdatedAt          time.Time       `json:"updatedAt"`
-	ChunkCount         int             `json:"chunkCount"`
-	EmbeddedChunkCount int             `json:"embeddedChunkCount"`
+	ID                  uuid.UUID       `json:"id"`
+	SourceType          string          `json:"sourceType"`
+	SourceInstance      string          `json:"sourceInstance"`
+	SourceIdentity      string          `json:"sourceIdentity"`
+	Title               string          `json:"title"`
+	RevisionID          uuid.UUID       `json:"revisionId"`
+	Metadata            json.RawMessage `json:"metadata"`
+	Tags                []string        `json:"tags"`
+	CreatedAt           time.Time       `json:"createdAt"`
+	UpdatedAt           time.Time       `json:"updatedAt"`
+	ChunkCount          int             `json:"chunkCount"`
+	EmbeddedChunkCount  int             `json:"embeddedChunkCount"`
+	DependencyCount     int             `json:"dependencyCount"`
+	DependentCount      int             `json:"dependentCount"`
+	OpenAnnotationCount int             `json:"openAnnotationCount"`
 }
 
 type RepositoryGroup struct {
@@ -61,6 +65,7 @@ type BrowseResponse struct {
 	Sources       []SourceSummary   `json:"sources"`
 	Tags          []string          `json:"tags"`
 	Tasks         []DocumentSummary `json:"tasks"`
+	TaskStatuses  []string          `json:"taskStatuses"`
 	Notes         []DocumentSummary `json:"notes"`
 	Briefings     []DocumentSummary `json:"briefings"`
 	Repositories  []RepositoryGroup `json:"repositories"`
@@ -162,11 +167,38 @@ func (r *Repository) Browse(ctx context.Context, projectID uuid.UUID) (BrowseRes
 	response := BrowseResponse{Project: projects, Sources: sources}
 	response.Tags = make([]string, 0)
 	response.Tasks = make([]DocumentSummary, 0)
+	response.TaskStatuses = make([]string, 0)
 	response.Notes = make([]DocumentSummary, 0)
 	response.Briefings = make([]DocumentSummary, 0)
 	response.Repositories = make([]RepositoryGroup, 0)
 	response.Conversations = make([]DocumentSummary, 0)
 	tagSet := make(map[string]struct{})
+	statusSet := make(map[string]struct{})
+	appendStatus := func(status string) {
+		status = strings.TrimSpace(status)
+		if status == "" {
+			return
+		}
+		key := strings.ToLower(status)
+		if _, exists := statusSet[key]; exists {
+			return
+		}
+		statusSet[key] = struct{}{}
+		response.TaskStatuses = append(response.TaskStatuses, status)
+	}
+	for _, source := range sources {
+		if source.SourceType != "task" {
+			continue
+		}
+		var metadata struct {
+			Statuses []string `json:"statuses"`
+		}
+		if json.Unmarshal(source.Metadata, &metadata) == nil {
+			for _, status := range metadata.Statuses {
+				appendStatus(status)
+			}
+		}
+	}
 	type repositoryKey struct{ repository, branch string }
 	repositories := make(map[repositoryKey][]DocumentSummary)
 	for _, document := range documents {
@@ -176,6 +208,12 @@ func (r *Repository) Browse(ctx context.Context, projectID uuid.UUID) (BrowseRes
 		switch document.SourceType {
 		case "task":
 			response.Tasks = append(response.Tasks, document)
+			var metadata struct {
+				Status string `json:"status"`
+			}
+			if json.Unmarshal(document.Metadata, &metadata) == nil {
+				appendStatus(metadata.Status)
+			}
 		case "note":
 			response.Notes = append(response.Notes, document)
 		case "briefing":
@@ -300,7 +338,15 @@ func (r *Repository) documents(ctx context.Context, projectID uuid.UUID) ([]Docu
 				WHERE dt.document_id = d.id AND dt.project_id = d.project_id ORDER BY t.name),
 			d.created_at, d.updated_at,
 			(SELECT count(*) FROM chunks c WHERE c.revision_id = r.id),
-			(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id = c.id WHERE c.revision_id = r.id)
+			(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id = c.id WHERE c.revision_id = r.id),
+			(SELECT count(*) FROM relationships rel
+				JOIN documents target ON target.id = rel.target_document_id AND target.project_id = rel.project_id
+				WHERE rel.project_id = d.project_id AND rel.source_document_id = d.id AND target.deleted_at IS NULL),
+			(SELECT count(*) FROM relationships rel
+				JOIN documents source ON source.id = rel.source_document_id AND source.project_id = rel.project_id
+				WHERE rel.project_id = d.project_id AND rel.target_document_id = d.id AND source.deleted_at IS NULL),
+			(SELECT count(*) FROM annotations a
+				WHERE a.project_id = d.project_id AND a.document_id = d.id AND a.status = 'open' AND a.tombstoned_at IS NULL)
 		FROM documents d
 		JOIN source_instances si ON si.id = d.source_instance_id AND si.project_id = d.project_id
 		JOIN revisions r ON r.id = d.current_revision_id AND r.project_id = d.project_id
@@ -315,7 +361,8 @@ func (r *Repository) documents(ctx context.Context, projectID uuid.UUID) ([]Docu
 		var document DocumentSummary
 		if err := rows.Scan(&document.ID, &document.SourceType, &document.SourceInstance, &document.SourceIdentity,
 			&document.Title, &document.RevisionID, &document.Metadata, &document.Tags, &document.CreatedAt,
-			&document.UpdatedAt, &document.ChunkCount, &document.EmbeddedChunkCount); err != nil {
+			&document.UpdatedAt, &document.ChunkCount, &document.EmbeddedChunkCount, &document.DependencyCount,
+			&document.DependentCount, &document.OpenAnnotationCount); err != nil {
 			return nil, err
 		}
 		result = append(result, document)

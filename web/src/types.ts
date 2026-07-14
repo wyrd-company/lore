@@ -22,6 +22,9 @@ export interface DocumentSummary {
   updatedAt: string;
   chunkCount: number;
   embeddedChunkCount: number;
+  dependencyCount: number;
+  dependentCount: number;
+  openAnnotationCount: number;
 }
 
 export type SourceType = "task" | "note" | "briefing" | "repository" | "conversation";
@@ -37,6 +40,7 @@ export interface BrowseResponse {
   sources: Array<{ id: string; sourceType: SourceType; sourceInstance: string; metadata: Json; documentCount: number; lastCompleteSyncAt?: string; updatedAt: string }>;
   tags: string[];
   tasks: DocumentSummary[];
+  taskStatuses: string[];
   notes: DocumentSummary[];
   briefings: DocumentSummary[];
   repositories: RepositoryGroup[];

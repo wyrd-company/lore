@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,6 +34,10 @@ type taskFrontMatter struct {
 	Class       string   `yaml:"class,omitempty" json:"class,omitempty"`
 }
 
+type taskBoardMetadata struct {
+	Statuses []string `json:"statuses"`
+}
+
 func Tasks(boardPath string, options Options) (synchronization.Manifest, error) {
 	manifest := newManifest(options, "task")
 	config, err := loadTaskConfig(boardPath)
@@ -43,6 +48,23 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 	entries, err := os.ReadDir(tasksDirectory)
 	if err != nil {
 		return manifest, fmt.Errorf("read task directory: %w", err)
+	}
+	statuses := make([]string, 0, len(config.Statuses))
+	seenStatuses := make(map[string]struct{}, len(config.Statuses))
+	appendStatus := func(status string) {
+		status = strings.TrimSpace(status)
+		if status == "" {
+			return
+		}
+		key := strings.ToLower(status)
+		if _, exists := seenStatuses[key]; exists {
+			return
+		}
+		seenStatuses[key] = struct{}{}
+		statuses = append(statuses, status)
+	}
+	for _, status := range config.Statuses {
+		appendStatus(status.Name)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, entry := range entries {
@@ -67,6 +89,7 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 		if frontMatter.Class == "" {
 			frontMatter.Class = config.Defaults.Class
 		}
+		appendStatus(frontMatter.Status)
 		identity := strconv.Itoa(frontMatter.ID)
 		dependencies := make([]string, 0, len(frontMatter.DependsOn))
 		for _, dependency := range frontMatter.DependsOn {
@@ -91,11 +114,28 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 		}
 		manifest.Documents = append(manifest.Documents, document)
 	}
+	manifest.Metadata, err = json.Marshal(taskBoardMetadata{Statuses: statuses})
+	if err != nil {
+		return manifest, fmt.Errorf("encode kanban metadata: %w", err)
+	}
 	return manifest, manifest.Validate()
 }
 
+type taskStatusConfig struct {
+	Name string `yaml:"name"`
+}
+
+func (status *taskStatusConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		return node.Decode(&status.Name)
+	}
+	type plain taskStatusConfig
+	return node.Decode((*plain)(status))
+}
+
 type taskBoardConfig struct {
-	TasksDirectory string `yaml:"tasks_dir"`
+	TasksDirectory string             `yaml:"tasks_dir"`
+	Statuses       []taskStatusConfig `yaml:"statuses"`
 	Defaults       struct {
 		Status   string `yaml:"status"`
 		Priority string `yaml:"priority"`

@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,13 @@ func TestTasksReadsKanbanBoard(t *testing.T) {
 	if len(manifest.Documents) != 2 || len(manifest.Relationships) != 1 {
 		t.Fatalf("unexpected task manifest: documents=%d relationships=%d", len(manifest.Documents), len(manifest.Relationships))
 	}
+	var board taskBoardMetadata
+	if err := json.Unmarshal(manifest.Metadata, &board); err != nil {
+		t.Fatalf("decode board metadata: %v", err)
+	}
+	if got := strings.Join(board.Statuses, ","); got != "done,Ready for deploy,backlog,archived,in progress" {
+		t.Fatalf("board status order = %q", got)
+	}
 	first := manifest.Documents[0]
 	if first.Identity != "1" || first.Title != "Build foundation" || strings.Join(first.Tags, ",") != "architecture,lore" {
 		t.Fatalf("unexpected first task: %#v", first)
@@ -79,6 +87,31 @@ func TestTasksReadsKanbanBoard(t *testing.T) {
 	relationship := manifest.Relationships[0]
 	if relationship.SourceIdentity != "2" || relationship.TargetIdentity != "1" || relationship.Type != "task-depends-on" {
 		t.Fatalf("unexpected dependency: %#v", relationship)
+	}
+}
+
+func TestTasksAcceptsStringStatusConfigurationAndAppendsTaskStatuses(t *testing.T) {
+	board := t.TempDir()
+	if err := os.Mkdir(filepath.Join(board, "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(board, "config.yml"), []byte("statuses: [done, backlog]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	task := []byte("---\nid: 9\ntitle: Custom lane task\nstatus: Ready for deploy\n---\n")
+	if err := os.WriteFile(filepath.Join(board, "tasks", "9-custom.md"), task, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Tasks(board, fixtureOptions("tasks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata taskBoardMetadata
+	if err := json.Unmarshal(manifest.Metadata, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(metadata.Statuses, ","); got != "done,backlog,Ready for deploy" {
+		t.Fatalf("board status order = %q", got)
 	}
 }
 
