@@ -161,7 +161,7 @@ func spaHandler() http.Handler {
 			return
 		}
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if name == "." {
+		if name == "" || name == "." {
 			name = "index.html"
 		}
 		file, openErr := dist.Open(name)

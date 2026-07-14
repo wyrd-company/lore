@@ -148,6 +148,29 @@ func TestPrepareGate(t *testing.T) {
 	writeJSONFile(t, requiredEnv(t, "LORE_E2E_STATE_PATH"), state)
 }
 
+func TestBuiltServerServesEmbeddedSPA(t *testing.T) {
+	for _, route := range []string{"/", "/regression/deep/spa-route"} {
+		response, err := httpClient.Get(baseURL() + route)
+		if err != nil {
+			t.Fatalf("GET embedded SPA route %q: %v", route, err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		response.Body.Close()
+		if readErr != nil {
+			t.Fatalf("read embedded SPA route %q: %v", route, readErr)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("embedded SPA route %q returned %s: %s", route, response.Status, body)
+		}
+		if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "text/html") {
+			t.Fatalf("embedded SPA route %q content type = %q, want text/html", route, contentType)
+		}
+		if !bytes.Contains(body, []byte(`<div id="root"></div>`)) {
+			t.Fatalf("embedded SPA route %q did not return the Vite application shell", route)
+		}
+	}
+}
+
 func TestFinalizeGate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

@@ -59,6 +59,7 @@ export LORE_E2E_WORKDIR="$workdir"
 export LORE_E2E_STATE_PATH="$state_path"
 export LORE_E2E_LORE_BIN="$root/bin/lore"
 
+go test -tags=e2e -count=1 -v ./e2e -run '^TestBuiltServerServesEmbeddedSPA$'
 go test -tags=e2e -count=1 -v ./e2e -run '^TestPrepareGate$'
 npm run e2e --prefix web
 go test -tags=e2e -count=1 -v ./e2e -run '^TestFinalizeGate$'
