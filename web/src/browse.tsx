@@ -26,9 +26,8 @@ export function OverviewPage() {
   </div>;
 }
 
-type SourceSection = "tasks" | "notes" | "briefings" | "conversations";
+type SourceSection = "notes" | "briefings" | "conversations";
 const listConfig: Record<SourceSection, { title: string; hint: string; type: SourceType }> = {
-  tasks: { title: "Tasks", hint: "Upload a kanban-md board with lore upload tasks.", type: "task" },
   notes: { title: "Notes", hint: "Upload a Mnemonic notes directory with lore upload notes.", type: "note" },
   briefings: { title: "Briefings", hint: "Upload trusted HTML with lore upload briefing.", type: "briefing" },
   conversations: { title: "Conversations", hint: "Upload Claude or Codex sessions with lore upload conversations.", type: "conversation" },
@@ -38,21 +37,17 @@ export function SourceIndexPage({ section }: { section: SourceSection }) {
   const { project = "" } = useParams();
   const { browse, loading, error, reload } = useProject();
   const [filter, setFilter] = useState("");
-  const [status, setStatus] = useState("");
   const config = listConfig[section];
   const documents: DocumentSummary[] | undefined = browse?.[section];
-  const statuses = useMemo(() => [...new Set((documents ?? []).map((item) => jsonString(item.metadata.status)).filter((item): item is string => Boolean(item)))].sort(), [documents]);
   const filtered = useMemo(() => (documents ?? []).filter((document) => {
     const matchesText = `${document.title} ${document.tags.join(" ")}`.toLowerCase().includes(filter.toLowerCase());
-    return matchesText && (!status || jsonString(document.metadata.status) === status);
-  }), [documents, filter, status]);
+    return matchesText;
+  }), [documents, filter]);
   if (loading) return <PageLoading />;
   if (error || !browse) return <PageError message={error ?? "Section unavailable."} retry={reload} />;
   return <div className="l-page">
     <div className="lore-page-head"><span className="page-kicker">{sourceLabel(config.type)}</span><h1 className="lore-page-head__title">{config.title}</h1><p className="lore-muted">{documents?.length ?? 0} documents in {browse.project.name}</p></div>
-    <div className="section-tools"><input className="lore-input" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={`Filter ${config.title.toLowerCase()}…`} aria-label={`Filter ${config.title.toLowerCase()}`} />
-      {section === "tasks" && <select className="lore-select" aria-label="Task status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select>}
-    </div>
+    <div className="section-tools"><input className="lore-input" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={`Filter ${config.title.toLowerCase()}…`} aria-label={`Filter ${config.title.toLowerCase()}`} /></div>
     {filtered.length ? <DocumentList documents={filtered} project={project} /> : <EmptyState section={config.title.toLowerCase()} hint={config.hint} />}
   </div>;
 }

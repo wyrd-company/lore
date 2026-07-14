@@ -1217,6 +1217,11 @@ hr {
 }
 .lore-tasks-toolbar .lore-facets { flex: 1; border-bottom: 0; padding: 0; }
 .lore-tasks-toolbar__view { flex: none; margin-left: auto; }
+.task-facet-label {
+  font-size: var(--text-2xs); font-weight: 640;
+  text-transform: uppercase; letter-spacing: var(--tracking-caps);
+  color: var(--text-faint);
+}
 
 /* Horizontal scroller — the board scrolls sideways inside THIS box only,
    so the page body never scrolls horizontally. */
@@ -1271,6 +1276,10 @@ hr {
   background: var(--bg-surface-2);
   border-bottom: var(--border-hair) solid var(--border-subtle);
 }
+.lore-col__head:is(button) {
+  width: 100%; font: inherit; color: inherit; text-align: left;
+  cursor: pointer; border-inline: 0; border-top: 0;
+}
 .lore-col__swatch {
   width: 8px; height: 8px; border-radius: 2px; flex: none;
   background: var(--col-accent);
@@ -1294,6 +1303,7 @@ hr {
 /* Column body — each column scrolls independently */
 .lore-col__body {
   overflow-y: auto;
+  min-height: 0;
   overscroll-behavior: contain;
   padding: var(--space-3);
   display: flex; flex-direction: column; gap: var(--space-3);
@@ -1388,6 +1398,7 @@ hr {
   content: ""; width: 6px; height: 6px; border-radius: 50%;
   background: var(--status-open);
 }
+.task-list-row .lore-status { width: max-content; margin-top: var(--space-1); }
 
 /* Narrow screens: board list-first. Columns stay legible via horizontal scroll;
    the implementation defaults the toggle to List under ~640px. */

@@ -7,13 +7,14 @@ import { App } from "./app";
 import { OverviewPage, RepositoryIndexPage, SourceIndexPage } from "./browse";
 import { DocumentPage } from "./document";
 import { SearchPage } from "./search";
+import { TasksPage } from "./tasks";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode><BrowserRouter><Routes>
     <Route path="/:project?" element={<App />}>
       <Route index element={<OverviewPage />} />
       <Route path="search" element={<SearchPage />} />
-      <Route path="tasks" element={<SourceIndexPage section="tasks" />} />
+      <Route path="tasks" element={<TasksPage />} />
       <Route path="tasks/:taskId" element={<DocumentPage section="tasks" />} />
       <Route path="notes" element={<SourceIndexPage section="notes" />} />
       <Route path="notes/:id" element={<DocumentPage section="notes" />} />
