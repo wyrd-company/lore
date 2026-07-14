@@ -41,8 +41,8 @@ proposed-design:
     command-line application, and PostgreSQL with pgvector. The server exposes the web
     interface and an HTTP API. PostgreSQL stores normalized content, annotations,
     keyword indexes, and vector embeddings. The command-line application uploads
-    project sources, watches mounted directories, downloads annotations, and exposes
-    briefing-authoring resources.
+    project sources, watches mounted directories, searches project knowledge,
+    downloads annotations, and exposes briefing-authoring resources.
 
     Docker Compose runs the server and PostgreSQL. The command-line application is
     also published as a container image so one or more watcher services can run with
@@ -52,8 +52,8 @@ proposed-design:
     The system contains these deployable and logical components:
 
     - `lore-server` serves the React application and project-scoped HTTP API.
-    - `lore` performs ad-hoc uploads, continuous synchronization, annotation exports,
-      and briefing resource discovery.
+    - `lore` performs ad-hoc uploads, continuous synchronization, project-scoped
+      searches, annotation exports, and briefing resource discovery.
     - PostgreSQL stores projects, source instances, documents, revisions, chunks,
       relationships, tags, annotations, and vector embeddings.
     - Vercel AI Gateway supplies embeddings from the fixed `voyage/voyage-4` model.
@@ -68,9 +68,9 @@ proposed-design:
     retrieval or ranking.
 
     The command-line application resolves the project from an explicit `--project`
-    argument and otherwise uses the `LORE_PROJECT` environment variable. Upload manifests
-    contain the resolved project explicitly. Annotation downloads require a project
-    and never combine annotations from several projects.
+    argument and otherwise uses the `LORE_PROJECT` environment variable. Upload
+    manifests contain the resolved project explicitly. Searches and annotation
+    downloads require a project and never combine data from several projects.
   content-model: |-
     A project owns source instances. A source instance represents one independently
     synchronized input, such as a task directory, note directory, briefing upload,
@@ -247,7 +247,8 @@ proposed-design:
     full-text search and vector similarity independently produce ranked candidates
     from that project. Reciprocal rank fusion combines the rankings. Results group
     matching chunks under their parent document and expose filters for source type,
-    branch, repository, tags, and dates.
+    branch, repository, tags, and dates. The command-line application exposes the
+    same search contract and writes the complete structured response as JSON.
   annotation-model: |-
     An annotation belongs to a project and targets one immutable document revision.
     It stores its body, status, browser-supplied username, creation and modification

@@ -28,7 +28,8 @@ features:
     using representations suited to each source.
   search-project-knowledge: >-
     Combines PostgreSQL keyword relevance with voyage/voyage-4 semantic similarity
-    within the selected project.
+    within the selected project through the web interface, HTTP API, or command-line
+    application.
   navigate-task-dependencies: >-
     Links task dependency relationships to the corresponding task pages.
   annotate-content: >-

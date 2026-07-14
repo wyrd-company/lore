@@ -13,6 +13,7 @@ import (
 
 	"github.com/wyrd-company/lore/internal/annotations"
 	"github.com/wyrd-company/lore/internal/projects"
+	"github.com/wyrd-company/lore/internal/retrieval"
 	"github.com/wyrd-company/lore/internal/synchronization"
 )
 
@@ -126,6 +127,57 @@ func (c *Client) ExportAnnotations(ctx context.Context, project string, after in
 		return export, fmt.Errorf("decode annotation export: %w", err)
 	}
 	return export, nil
+}
+
+func (c *Client) Search(ctx context.Context, project string, searchRequest retrieval.Request) (retrieval.Response, error) {
+	var result retrieval.Response
+	query := url.Values{}
+	query.Set("q", searchRequest.Query)
+	for _, sourceType := range searchRequest.Filters.SourceTypes {
+		query.Add("sourceType", sourceType)
+	}
+	for _, repository := range searchRequest.Filters.Repositories {
+		query.Add("repository", repository)
+	}
+	for _, branch := range searchRequest.Filters.Branches {
+		query.Add("branch", branch)
+	}
+	for _, tag := range searchRequest.Filters.Tags {
+		query.Add("tag", tag)
+	}
+	if searchRequest.Filters.CreatedFrom != nil {
+		query.Set("createdFrom", searchRequest.Filters.CreatedFrom.Format(time.RFC3339))
+	}
+	if searchRequest.Filters.CreatedTo != nil {
+		query.Set("createdTo", searchRequest.Filters.CreatedTo.Format(time.RFC3339))
+	}
+	if searchRequest.Limit > 0 {
+		query.Set("limit", fmt.Sprint(searchRequest.Limit))
+	}
+	endpoint := c.baseURL + "/api/projects/" + url.PathEscape(project) + "/search?" + query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return result, fmt.Errorf("create search request: %w", err)
+	}
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return result, fmt.Errorf("search Lore: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		limited, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+		var problem struct {
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(limited, &problem) == nil && problem.Detail != "" {
+			return result, fmt.Errorf("Lore server returned %s: %s", response.Status, problem.Detail)
+		}
+		return result, fmt.Errorf("Lore server returned %s", response.Status)
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<20)).Decode(&result); err != nil {
+		return result, fmt.Errorf("decode search response: %w", err)
+	}
+	return result, nil
 }
 
 func (c *Client) Synchronize(ctx context.Context, manifest synchronization.Manifest) (synchronization.Result, error) {

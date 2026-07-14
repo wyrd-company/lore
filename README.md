@@ -246,6 +246,7 @@ lore [--config <credentials.yml>] config
 lore projects create --slug <slug> --name <name>
 lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
 lore [--config <credentials.yml>] watch --config <watch.yml>
+lore search --project <project> [filters] <query...>
 lore annotations export --project <project> [--after <cursor>] [--output <path>]
 lore briefings <show-css|show-skill|write-css|write-skill|contract>
 lore migrate
@@ -255,6 +256,22 @@ lore version
 Every command and command group accepts `--help` or `-h`. The singular command
 aliases `project`, `annotation`, and `briefing` are equivalent to `projects`,
 `annotations`, and `briefings` respectively.
+
+`lore search` resolves its server from the shared client configuration and its
+project from `--project` or `LORE_PROJECT`. It writes the complete search response
+as indented JSON, including ranking modes, warnings, document and chunk scores,
+snippets, and structural locations. The CLI exposes the same structured filters as
+the HTTP API:
+
+```bash
+lore search --project lore --source-type note,repository --tag architecture \
+  --repository wyrd-company/lore --branch main --limit 20 \
+  "search and retrieval"
+```
+
+`--source-type`, `--repository`, `--branch`, and `--tag` may each be repeated or
+receive comma-separated values. `--created-from` and `--created-to` accept RFC3339
+timestamps and apply inclusive bounds.
 
 ## Synchronization manifest
 

@@ -96,6 +96,8 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		return r.showConfig(args[1:], selection)
 	case "briefings", "briefing":
 		return r.briefings(args[1:])
+	case "search":
+		return r.search(ctx, args[1:], selection)
 	default:
 		return r.usageError(fmt.Errorf("unknown command %q", args[0]), "")
 	}
@@ -403,6 +405,7 @@ Commands:
   watch        Watch and synchronize configured sources
   annotations  Export annotations (alias: annotation)
   briefings    Read or write briefing resources (alias: briefing)
+  search       Search project knowledge
   migrate      Apply database migrations
   version      Print the Lore version
   help         Show this usage`,
@@ -420,6 +423,17 @@ Commands:
   lore annotations export --project <project> [--after <cursor>] [--output <path>]`,
 		"briefings": `Usage:
   lore briefings <show-css|show-skill|write-css|write-skill|contract>`,
+		"search": `Usage:
+  lore search --project <project> [filters] <query...>
+
+Filters:
+  --source-type <type>   Repeatable or comma-separated source types
+  --repository <name>   Repeatable or comma-separated repositories
+  --branch <name>       Repeatable or comma-separated branches
+  --tag <tag>           Repeatable or comma-separated normalized tags
+  --created-from <time> RFC3339 inclusive lower bound
+  --created-to <time>   RFC3339 inclusive upper bound
+  --limit <count>       Maximum documents (default 20)`,
 		"watch": `Usage:
   lore [--config <credentials.yml>] watch --config <watch.yml> [--server <url>] [--token <token>]`,
 		"migrate": `Usage:

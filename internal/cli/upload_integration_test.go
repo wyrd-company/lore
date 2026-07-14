@@ -20,6 +20,7 @@ import (
 	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/database"
 	"github.com/wyrd-company/lore/internal/httpapi"
+	"github.com/wyrd-company/lore/internal/retrieval"
 )
 
 func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
@@ -132,6 +133,20 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	if len(listing.Tasks) != 2 || len(listing.Notes) != 2 || len(listing.Briefings) != 1 ||
 		len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 3 || len(listing.Conversations) != 2 || len(listing.Terms) != 2 {
 		t.Fatalf("browse listing = %#v", listing)
+	}
+	output.Reset()
+	if err := runner.Run(ctx, []string{
+		"search", "--project", "lore", "--server", server.URL,
+		"--source-type", "note", "--tag", "adapters", "adapter", "context",
+	}); err != nil {
+		t.Fatalf("CLI search: %v\n%s", err, output.String())
+	}
+	var searchResponse retrieval.Response
+	if err := json.Unmarshal(output.Bytes(), &searchResponse); err != nil {
+		t.Fatalf("decode CLI search response: %v\n%s", err, output.String())
+	}
+	if !searchResponse.Modes.Keyword || searchResponse.Modes.Vector || len(searchResponse.Results) != 1 || searchResponse.Results[0].Title != "Related adapter context" {
+		t.Fatalf("CLI search response = %#v", searchResponse)
 	}
 	var taskID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT id FROM documents WHERE source_type = 'task' AND source_identity = '2'`).Scan(&taskID); err != nil {

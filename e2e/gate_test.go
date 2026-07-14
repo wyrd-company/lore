@@ -156,7 +156,7 @@ func TestPrepareGate(t *testing.T) {
 	testWatch(t, ctx, work)
 	testBriefingContract(t, ctx, work)
 	waitForEmbeddings(t, ctx, pool)
-	testHybridAndIsolation(t)
+	testHybridAndIsolation(t, ctx)
 
 	snapshotPath := filepath.Join(work, "annotations-snapshot.json")
 	runLore(t, ctx, "annotations", "export", "--project", primaryProject, "--server", baseURL(), "--output", snapshotPath)
@@ -301,12 +301,14 @@ func testBriefingContract(t *testing.T, ctx context.Context, work string) {
 	}
 }
 
-func testHybridAndIsolation(t *testing.T) {
-	query := url.Values{"q": {"foundation architecture"}}
+func testHybridAndIsolation(t *testing.T, ctx context.Context) {
 	var response retrieval.Response
-	getJSON(t, baseURL()+"/api/projects/"+primaryProject+"/search?"+query.Encode(), http.StatusOK, &response)
+	output := runLore(t, ctx, "search", "--project", primaryProject, "--server", baseURL(), "--limit", "5", "foundation architecture")
+	if err := json.Unmarshal([]byte(output), &response); err != nil {
+		t.Fatalf("decode CLI search response: %v\n%s", err, output)
+	}
 	if !response.Modes.Keyword || !response.Modes.Vector || len(response.Results) == 0 {
-		t.Fatalf("hybrid modes/results = %#v", response)
+		t.Fatalf("CLI hybrid modes/results = %#v", response)
 	}
 	both := false
 	for _, result := range response.Results {
@@ -317,7 +319,7 @@ func testHybridAndIsolation(t *testing.T) {
 	if !both {
 		t.Fatal("no chunk participated in both independent rankings")
 	}
-	query = url.Values{"q": {"velvet-quasar-719"}}
+	query := url.Values{"q": {"velvet-quasar-719"}}
 	getJSON(t, baseURL()+"/api/projects/"+primaryProject+"/search?"+query.Encode(), http.StatusOK, &response)
 	for _, result := range response.Results {
 		if result.Title == "Quasar isolation ledger" {

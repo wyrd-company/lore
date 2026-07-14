@@ -21,6 +21,7 @@ func TestHelpCommandsExitZero(t *testing.T) {
 		{name: "upload command", args: []string{"upload", "notes", "--help"}},
 		{name: "annotation command", args: []string{"annotation", "export", "--help"}},
 		{name: "briefing command", args: []string{"briefing", "contract", "--help"}},
+		{name: "search command", args: []string{"search", "--help"}},
 		{name: "config command", args: []string{"config", "--help"}},
 		{name: "watch command", args: []string{"watch", "--help"}},
 		{name: "migrate command", args: []string{"migrate", "--help"}},
