@@ -6,7 +6,38 @@ test("validates the complete archive journey with real services", async ({ page 
   await expect(page.getByText(/documents held across/)).toBeVisible();
 
   await page.getByRole("link", { name: /Tasks 2/ }).click();
-  await openRow(page, "Build foundation");
+  await expect(page.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".lore-col__label")).toHaveText(["Backlog", "In Progress", "Done", "Ready for deploy", "Archived"]);
+  await expect(page.locator('.lore-col[data-status="archived"]')).toHaveClass(/is-collapsed/);
+  await page.locator('.lore-col[data-status="archived"] .lore-col__head').click();
+  await expect(page.locator('.lore-col[data-status="archived"]')).not.toHaveClass(/is-collapsed/);
+
+  const foundationCard = page.locator(".lore-task-card").filter({ hasText: "Build foundation" });
+  await expect(foundationCard.locator('.lore-task-card__prio[data-prio="high"]')).toBeVisible();
+  await expect(foundationCard.getByTitle("Blocks / dependents")).toContainText("1");
+  await expect(foundationCard.getByTitle("Open annotations")).toHaveText("1");
+  await expect(page.locator(".lore-task-card").filter({ hasText: "Build adapters" }).getByTitle("Depends on")).toContainText("1");
+
+  await page.locator(".lore-facet").filter({ hasText: "architecture" }).click();
+  await expect(page).toHaveURL(/tag=architecture/);
+  await expect(page.locator('.lore-col[data-status="backlog"] .lore-task-card')).toHaveCount(0);
+  await expect(page.locator('.lore-col[data-status="backlog"] .lore-col__empty')).toHaveText("Nothing here");
+  await expect(foundationCard).toBeVisible();
+  await page.locator(".lore-facet").filter({ hasText: "High" }).click();
+  await expect(page).toHaveURL(/priority=high/);
+  await page.locator(".lore-facet").filter({ hasText: "Done" }).click();
+  await expect(page).toHaveURL(/status=done/);
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page).toHaveURL(/view=list/);
+  await expect(page.locator(".task-list-row").filter({ hasText: "Build foundation" })).toBeVisible();
+  await expect(page.locator(".task-list-row").filter({ hasText: "Build adapters" })).toHaveCount(0);
+
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto("/e2e-primary/tasks");
+  await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".lore-task-card").filter({ hasText: "Build foundation" }).click();
   await expect(page.getByRole("heading", { name: "Build foundation", level: 1 })).toBeVisible();
   await expect(page.getByLabel("Revision", { exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: /Build adapters/ }).click();

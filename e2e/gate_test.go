@@ -89,14 +89,35 @@ func TestPrepareGate(t *testing.T) {
 	var listing browse.BrowseResponse
 	getJSON(t, baseURL()+"/api/projects/"+primaryProject+"/browse", http.StatusOK, &listing)
 	assertSourceCounts(t, listing)
+	if got := strings.Join(listing.TaskStatuses, ","); got != "done,Ready for deploy,backlog,archived,in progress" {
+		t.Fatalf("task status vocabulary = %q", got)
+	}
 	if len(listing.Repositories) != 1 || listing.Repositories[0].Repository != "git@github.com:wyrd-company/lore-e2e-fixture.git" || listing.Repositories[0].Branch != "e2e/real-services" {
 		t.Fatalf("repository git derivation = %#v", listing.Repositories)
+	}
+	foundation := findDocument(t, listing.Tasks, "Build foundation")
+	var foundationDetail browse.DocumentDetail
+	getJSON(t, fmt.Sprintf("%s/api/projects/%s/documents/%s", baseURL(), primaryProject, foundation.ID), http.StatusOK, &foundationDetail)
+	createAnnotation(t, foundationDetail, "Board-visible task annotation")
+	getJSON(t, baseURL()+"/api/projects/"+primaryProject+"/browse", http.StatusOK, &listing)
+	foundation = findDocument(t, listing.Tasks, "Build foundation")
+	adapters := findDocument(t, listing.Tasks, "Build adapters")
+	if foundation.DependencyCount != 0 || foundation.DependentCount != 1 || foundation.OpenAnnotationCount != 1 {
+		t.Fatalf("foundation board counts = dependencies %d dependents %d annotations %d", foundation.DependencyCount, foundation.DependentCount, foundation.OpenAnnotationCount)
+	}
+	if adapters.DependencyCount != 1 || adapters.DependentCount != 0 || adapters.OpenAnnotationCount != 0 {
+		t.Fatalf("adapters board counts = dependencies %d dependents %d annotations %d", adapters.DependencyCount, adapters.DependentCount, adapters.OpenAnnotationCount)
 	}
 
 	isolatedNotes := filepath.Join(work, "isolated-notes")
 	mustMkdir(t, isolatedNotes)
 	mustWrite(t, filepath.Join(isolatedNotes, "private.md"), []byte("---\ntitle: Quasar isolation ledger\ntags: [private]\n---\n# Quasar isolation ledger\n\nvelvet-quasar-719 belongs only to the isolated project.\n"))
 	runLore(t, ctx, "upload", "notes", "--project", isolatedProject, "--source-instance", "isolated", "--complete", "--server", baseURL(), "--token", ingestToken, isolatedNotes)
+	var isolatedListing browse.BrowseResponse
+	getJSON(t, baseURL()+"/api/projects/"+isolatedProject+"/browse", http.StatusOK, &isolatedListing)
+	if len(isolatedListing.Tasks) != 0 || len(isolatedListing.TaskStatuses) != 0 {
+		t.Fatalf("task board data leaked across projects: %#v", isolatedListing)
+	}
 
 	manifestNotes := filepath.Join(work, "manifest-notes")
 	mustMkdir(t, manifestNotes)
