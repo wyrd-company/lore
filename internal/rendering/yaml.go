@@ -26,6 +26,13 @@ func YAML(source []byte) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	frontMatter := make(map[string]any)
+	if document.Content[0].Kind == yaml.MappingNode {
+		if err := document.Content[0].Decode(&frontMatter); err != nil {
+			return Result{}, fmt.Errorf("decode YAML properties: %w", err)
+		}
+	}
+	result.FrontMatter = frontMatter
 	return result, nil
 }
 

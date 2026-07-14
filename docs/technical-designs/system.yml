@@ -89,6 +89,14 @@ proposed-design:
     - Repository documents: repository identity, branch, path, and source format.
     - Conversations: provider, session identifier, working directory, title, and
       ordered normalized messages.
+
+    Tags use one normalized, project-scoped store shared by every source type.
+    Repository YAML and Markdown front matter contribute top-level tags and terms.
+    A repository document whose `$schema` path ends in `/term` defines the normalized
+    term named by its filename stem. Term references remain addressable when no
+    definition exists, allowing the web application to expose missing definitions.
+    Mnemonic `relatedTo` metadata becomes a navigable relationship between notes when
+    both notes are present in the same source projection.
   source-identity: |-
     A document key combines its project, source type, source instance, and
     source-specific identity. Repository document identity additionally contains the
@@ -278,15 +286,22 @@ proposed-design:
     machine-readable structure.
   web-interface: |-
     The web application provides a project selector and project-scoped navigation for
-    tasks, notes, briefings, repository documents, and conversations. Source pages
+    tasks, notes, terms, briefings, repository documents, and conversations. Source pages
     present rendered content, annotations, source provenance, and a revision selector
     when annotated prior revisions exist.
 
     Search is available within the active project and displays grouped hybrid results
-    with source and metadata filters. Task pages link dependencies and dependents.
+    with source and metadata filters. Repository browsing filters by repository,
+    normalized tag, and the final `$schema` path element. Note browsing filters by
+    role, tag, lifecycle, and source project name and sorts by source creation time,
+    source update time, or title. Task pages link dependencies and dependents, and
+    note pages link related notes.
     Conversation pages distinguish user and assistant messages and place thinking in
     collapsed disclosure regions. Briefings render their stored body within the normal
-    application shell using `site.css`.
+    application shell using `site.css` and expose contextual navigation to the other
+    project briefings. Visible document text matching a normalized project tag or term
+    is linked to tag-filtered search or the canonical term page. Each document with
+    term references ends with links to their definition or missing-definition page.
   access-and-credentials: |-
     Cloudflare Tunnel exposes the local service and Cloudflare Zero Trust controls
     remote access. Lore also supports direct local-network access. The server accepts

@@ -60,10 +60,25 @@ type RepositoryGroup struct {
 	Documents  []DocumentSummary `json:"documents"`
 }
 
+type TermSummary struct {
+	Name                 string     `json:"name"`
+	Title                string     `json:"title"`
+	Defined              bool       `json:"defined"`
+	DefinitionDocumentID *uuid.UUID `json:"definitionDocumentId,omitempty"`
+	ReferenceCount       int        `json:"referenceCount"`
+}
+
+type TermReference struct {
+	Name    string `json:"name"`
+	Title   string `json:"title"`
+	Defined bool   `json:"defined"`
+}
+
 type BrowseResponse struct {
 	Project       ProjectSummary    `json:"project"`
 	Sources       []SourceSummary   `json:"sources"`
 	Tags          []string          `json:"tags"`
+	Terms         []TermSummary     `json:"terms"`
 	Tasks         []DocumentSummary `json:"tasks"`
 	TaskStatuses  []string          `json:"taskStatuses"`
 	Notes         []DocumentSummary `json:"notes"`
@@ -112,6 +127,7 @@ type DocumentDetail struct {
 	Renderer        string            `json:"renderer"`
 	Provenance      json.RawMessage   `json:"provenance"`
 	Relationships   []Relationship    `json:"relationships"`
+	Terms           []TermReference   `json:"terms"`
 	Revisions       []RevisionSummary `json:"revisions"`
 }
 
@@ -164,8 +180,13 @@ func (r *Repository) Browse(ctx context.Context, projectID uuid.UUID) (BrowseRes
 	if err != nil {
 		return BrowseResponse{}, err
 	}
+	terms, err := r.terms(ctx, projectID)
+	if err != nil {
+		return BrowseResponse{}, err
+	}
 	response := BrowseResponse{Project: projects, Sources: sources}
 	response.Tags = make([]string, 0)
+	response.Terms = terms
 	response.Tasks = make([]DocumentSummary, 0)
 	response.TaskStatuses = make([]string, 0)
 	response.Notes = make([]DocumentSummary, 0)
@@ -267,6 +288,10 @@ func (r *Repository) Document(ctx context.Context, projectID, documentID uuid.UU
 		return detail, err
 	}
 	detail.Relationships, err = r.relationships(ctx, projectID, documentID)
+	if err != nil {
+		return detail, err
+	}
+	detail.Terms, err = r.documentTerms(ctx, projectID, documentID)
 	if err != nil {
 		return detail, err
 	}
@@ -395,14 +420,102 @@ func (r *Repository) sources(ctx context.Context, projectID uuid.UUID) ([]Source
 	return result, rows.Err()
 }
 
+func (r *Repository) terms(ctx context.Context, projectID uuid.UUID) ([]TermSummary, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT t.name,
+			coalesce((
+				SELECT definition.title
+				FROM term_definitions td
+				JOIN documents definition ON definition.id = td.document_id AND definition.project_id = td.project_id
+				WHERE td.project_id = t.project_id AND td.term_id = t.id AND definition.deleted_at IS NULL
+				ORDER BY definition.title, definition.id LIMIT 1
+			), initcap(replace(t.name, '-', ' '))),
+			EXISTS (
+				SELECT 1 FROM term_definitions td
+				JOIN documents definition ON definition.id = td.document_id AND definition.project_id = td.project_id
+				WHERE td.project_id = t.project_id AND td.term_id = t.id AND definition.deleted_at IS NULL
+			),
+			(
+				SELECT td.document_id FROM term_definitions td
+				JOIN documents definition ON definition.id = td.document_id AND definition.project_id = td.project_id
+				WHERE td.project_id = t.project_id AND td.term_id = t.id AND definition.deleted_at IS NULL
+				ORDER BY definition.title, definition.id LIMIT 1
+			),
+			(
+				SELECT count(*) FROM document_terms dt
+				JOIN documents reference ON reference.id = dt.document_id AND reference.project_id = dt.project_id
+				WHERE dt.project_id = t.project_id AND dt.term_id = t.id AND reference.deleted_at IS NULL
+			)
+		FROM terms t
+		WHERE t.project_id = $1
+		  AND (EXISTS (
+			SELECT 1 FROM document_terms dt
+			JOIN documents reference ON reference.id = dt.document_id AND reference.project_id = dt.project_id
+			WHERE dt.project_id = t.project_id AND dt.term_id = t.id AND reference.deleted_at IS NULL
+		  ) OR EXISTS (
+			SELECT 1 FROM term_definitions td
+			JOIN documents definition ON definition.id = td.document_id AND definition.project_id = td.project_id
+			WHERE td.project_id = t.project_id AND td.term_id = t.id AND definition.deleted_at IS NULL
+		  ))
+		ORDER BY t.name`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]TermSummary, 0)
+	for rows.Next() {
+		var term TermSummary
+		if err := rows.Scan(&term.Name, &term.Title, &term.Defined, &term.DefinitionDocumentID, &term.ReferenceCount); err != nil {
+			return nil, err
+		}
+		result = append(result, term)
+	}
+	return result, rows.Err()
+}
+
+func (r *Repository) documentTerms(ctx context.Context, projectID, documentID uuid.UUID) ([]TermReference, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT t.name,
+			coalesce((
+				SELECT definition.title FROM term_definitions td
+				JOIN documents definition ON definition.id = td.document_id AND definition.project_id = td.project_id
+				WHERE td.project_id = t.project_id AND td.term_id = t.id AND definition.deleted_at IS NULL
+				ORDER BY definition.title, definition.id LIMIT 1
+			), initcap(replace(t.name, '-', ' '))),
+			EXISTS (
+				SELECT 1 FROM term_definitions td
+				JOIN documents definition ON definition.id = td.document_id AND definition.project_id = td.project_id
+				WHERE td.project_id = t.project_id AND td.term_id = t.id AND definition.deleted_at IS NULL
+			)
+		FROM document_terms dt
+		JOIN terms t ON t.id = dt.term_id AND t.project_id = dt.project_id
+		WHERE dt.project_id = $1 AND dt.document_id = $2
+		ORDER BY t.name`, projectID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]TermReference, 0)
+	for rows.Next() {
+		var term TermReference
+		if err := rows.Scan(&term.Name, &term.Title, &term.Defined); err != nil {
+			return nil, err
+		}
+		result = append(result, term)
+	}
+	return result, rows.Err()
+}
+
 func (r *Repository) relationships(ctx context.Context, projectID, documentID uuid.UUID) ([]Relationship, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT 'dependency', rel.relationship_type, target.id, target.source_identity, target.title, rel.metadata
+		SELECT CASE WHEN rel.relationship_type = 'task-depends-on' THEN 'dependency' ELSE 'related' END,
+			rel.relationship_type, target.id, target.source_identity, target.title, rel.metadata
 		FROM relationships rel
 		JOIN documents target ON target.id = rel.target_document_id AND target.project_id = rel.project_id
 		WHERE rel.project_id = $1 AND rel.source_document_id = $2 AND target.deleted_at IS NULL
 		UNION ALL
-		SELECT 'dependent', rel.relationship_type, source.id, source.source_identity, source.title, rel.metadata
+		SELECT CASE WHEN rel.relationship_type = 'task-depends-on' THEN 'dependent' ELSE 'related' END,
+			rel.relationship_type, source.id, source.source_identity, source.title, rel.metadata
 		FROM relationships rel
 		JOIN documents source ON source.id = rel.source_document_id AND source.project_id = rel.project_id
 		WHERE rel.project_id = $1 AND rel.target_document_id = $2 AND source.deleted_at IS NULL

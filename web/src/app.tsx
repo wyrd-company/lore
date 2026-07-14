@@ -17,6 +17,7 @@ export const useProject = () => useContext(ProjectContext);
 const navItems = [
   ["Overview", "", "⌂", undefined], ["Search", "search", "⌕", undefined],
   ["Tasks", "tasks", "□", "task"], ["Notes", "notes", "◇", "note"],
+  ["Terms", "terms", "T", undefined],
   ["Briefings", "briefings", "▱", "briefing"], ["Repository", "repo", "⌘", "repository"],
   ["Conversations", "conversations", "◌", "conversation"],
 ] as const;
@@ -125,7 +126,7 @@ export function App() {
             {navItems.slice(0, 2).map(([label, path, icon]) => <NavLink end={path === ""} className="l-nav-item" key={label} to={`/${project}${path ? `/${path}` : ""}`}><span className="l-nav-item__icon">{icon}</span>{label}</NavLink>)}
           </div>
           <div className="l-nav-section"><div className="l-nav-section__label">Sources</div>
-            {navItems.slice(2).map(([label, path, icon, type]) => <NavLink className="l-nav-item" key={label} to={`/${project}/${path}`}><span className="l-nav-item__icon">{icon}</span>{label}<span className="l-nav-item__count">{counts[type!] ?? 0}</span></NavLink>)}
+            {navItems.slice(2).map(([label, path, icon, type]) => <NavLink className="l-nav-item" key={label} to={`/${project}/${path}`}><span className="l-nav-item__icon">{icon}</span>{label}<span className="l-nav-item__count">{type ? counts[type] ?? 0 : browse?.terms.filter((term) => term.defined).length ?? 0}</span></NavLink>)}
           </div>
         </nav>
       </aside>

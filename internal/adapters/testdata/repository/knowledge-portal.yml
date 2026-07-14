@@ -1,0 +1,7 @@
+$schema: https://refinery.systems/ontology/term
+title: Knowledge Portal
+description: A browsable projection of project knowledge from authoritative local sources.
+tags:
+  - architecture
+terms:
+  - knowledge

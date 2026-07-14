@@ -34,6 +34,8 @@ type Document struct {
 	Metadata        json.RawMessage `json:"metadata,omitempty"`
 	Provenance      json.RawMessage `json:"provenance,omitempty"`
 	Tags            []string        `json:"tags,omitempty"`
+	Terms           []string        `json:"terms,omitempty"`
+	DefinesTerm     string          `json:"definesTerm,omitempty"`
 }
 
 type Relationship struct {
@@ -72,8 +74,8 @@ func (m Manifest) Validate() error {
 	if len(m.Metadata) > 0 && !json.Valid(m.Metadata) {
 		return errors.New("metadata must be valid JSON")
 	}
-	if len(m.Relationships) > 0 && m.SourceType != "task" {
-		return errors.New("relationships are only supported for task manifests")
+	if len(m.Relationships) > 0 && m.SourceType != "task" && m.SourceType != "note" {
+		return errors.New("relationships are only supported for task and note manifests")
 	}
 	seen := make(map[string]struct{}, len(m.Documents))
 	for i, document := range m.Documents {
@@ -106,10 +108,24 @@ func (m Manifest) Validate() error {
 			}
 			tags[tag] = struct{}{}
 		}
+		terms := make(map[string]struct{}, len(document.Terms))
+		for j, term := range document.Terms {
+			if term == "" {
+				return fmt.Errorf("documents[%d].terms[%d] must not be empty", i, j)
+			}
+			if _, exists := terms[term]; exists {
+				return fmt.Errorf("documents[%d] contains duplicate term %q", i, term)
+			}
+			terms[term] = struct{}{}
+		}
 	}
 	seenRelationships := make(map[string]struct{}, len(m.Relationships))
 	for i, relationship := range m.Relationships {
-		if relationship.Type != "task-depends-on" {
+		expectedType := "task-depends-on"
+		if m.SourceType == "note" {
+			expectedType = "note-related-to"
+		}
+		if relationship.Type != expectedType {
 			return fmt.Errorf("relationships[%d] has unsupported type %q", i, relationship.Type)
 		}
 		if relationship.SourceIdentity == "" || relationship.TargetIdentity == "" {

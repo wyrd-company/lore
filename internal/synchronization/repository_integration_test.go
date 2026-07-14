@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/database"
 )
 
@@ -65,6 +66,8 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 		Relationships: []Relationship{{SourceIdentity: "two", TargetIdentity: "one", Type: "task-depends-on"}},
 	}
 	manifest.Documents[0].Tags = []string{"architecture", "lore"}
+	manifest.Documents[0].Terms = []string{"knowledge-portal", "missing-term"}
+	manifest.Documents[1].DefinesTerm = "knowledge-portal"
 	result, err := repository.Apply(ctx, projectID, manifest)
 	if err != nil {
 		t.Fatalf("initial apply: %v", err)
@@ -78,6 +81,32 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM relationships`).Scan(&relationships); err != nil || relationships != 1 {
 		t.Fatalf("relationships = %d, err = %v", relationships, err)
+	}
+	var terms, termLinks, termDefinitions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM terms`).Scan(&terms); err != nil || terms != 2 {
+		t.Fatalf("terms = %d, err = %v", terms, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM document_terms`).Scan(&termLinks); err != nil || termLinks != 2 {
+		t.Fatalf("term links = %d, err = %v", termLinks, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM term_definitions`).Scan(&termDefinitions); err != nil || termDefinitions != 1 {
+		t.Fatalf("term definitions = %d, err = %v", termDefinitions, err)
+	}
+	browser := browse.NewRepository(pool)
+	listing, err := browser.Browse(ctx, projectID)
+	if err != nil {
+		t.Fatalf("browse taxonomy: %v", err)
+	}
+	if len(listing.Terms) != 2 || listing.Terms[0].Name != "knowledge-portal" || !listing.Terms[0].Defined || listing.Terms[1].Name != "missing-term" || listing.Terms[1].Defined {
+		t.Fatalf("term collection = %#v", listing.Terms)
+	}
+	var firstID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM documents WHERE source_identity = 'one'`).Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := browser.Document(ctx, projectID, firstID)
+	if err != nil || len(detail.Terms) != 2 || !detail.Terms[0].Defined || detail.Terms[1].Defined {
+		t.Fatalf("document terms = %#v, err = %v", detail.Terms, err)
 	}
 	var chunks, embeddingJobs int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM chunks`).Scan(&chunks); err != nil || chunks != 2 {
@@ -139,6 +168,26 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 		t.Fatalf("empty complete apply: %v", err)
 	}
 	assertCurrentDocuments(t, ctx, pool, 1)
+
+	notes := Manifest{
+		Project: "lore", SourceInstance: "related-notes", SourceType: "note", Boundary: BoundaryComplete,
+		Documents: []Document{documentFixture("note-one", "1"), documentFixture("note-two", "2")},
+		Relationships: []Relationship{
+			{SourceIdentity: "note-one", TargetIdentity: "note-two", Type: "note-related-to"},
+			{SourceIdentity: "note-one", TargetIdentity: "external-note", Type: "note-related-to"},
+		},
+	}
+	if _, err := repository.Apply(ctx, projectID, notes); err != nil {
+		t.Fatalf("apply related notes: %v", err)
+	}
+	var noteID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT id FROM documents WHERE source_identity = 'note-one'`).Scan(&noteID); err != nil {
+		t.Fatal(err)
+	}
+	noteDetail, err := browser.Document(ctx, projectID, noteID)
+	if err != nil || len(noteDetail.Relationships) != 1 || noteDetail.Relationships[0].Direction != "related" || noteDetail.Relationships[0].SourceIdentity != "note-two" {
+		t.Fatalf("note relationships = %#v, err = %v", noteDetail.Relationships, err)
+	}
 
 	broken := Manifest{
 		Project: "lore", SourceInstance: "broken", SourceType: "task", Boundary: BoundaryPartial,

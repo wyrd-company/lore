@@ -93,7 +93,7 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	if err := row.Scan(&documents, &revisions, &tags, &relationships); err != nil {
 		t.Fatal(err)
 	}
-	if documents != 8 || revisions != 8 || tags == 0 || relationships != 1 {
+	if documents != 10 || revisions != 10 || tags == 0 || relationships != 2 {
 		t.Fatalf("unexpected persistence: documents=%d revisions=%d tags=%d relationships=%d", documents, revisions, tags, relationships)
 	}
 	if !strings.Contains(output.String(), "2 created") {
@@ -113,7 +113,7 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		}
 		counts[sourceType] = count
 	}
-	want := map[string]int{"task": 2, "note": 1, "briefing": 1, "repository": 2, "conversation": 2}
+	want := map[string]int{"task": 2, "note": 2, "briefing": 1, "repository": 3, "conversation": 2}
 	for sourceType, count := range want {
 		if counts[sourceType] != count {
 			t.Fatalf("%s documents = %d, want %d (all: %#v)", sourceType, counts[sourceType], count, counts)
@@ -124,13 +124,13 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 		Projects []browse.ProjectSummary `json:"projects"`
 	}
 	getJSON(t, server.URL+"/api/projects", http.StatusOK, &projects)
-	if len(projects.Projects) != 2 || projects.Projects[0].DocumentCount != 8 {
+	if len(projects.Projects) != 2 || projects.Projects[0].DocumentCount != 10 {
 		t.Fatalf("project listing = %#v", projects.Projects)
 	}
 	var listing browse.BrowseResponse
 	getJSON(t, server.URL+"/api/projects/lore/browse", http.StatusOK, &listing)
-	if len(listing.Tasks) != 2 || len(listing.Notes) != 1 || len(listing.Briefings) != 1 ||
-		len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 2 || len(listing.Conversations) != 2 {
+	if len(listing.Tasks) != 2 || len(listing.Notes) != 2 || len(listing.Briefings) != 1 ||
+		len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 3 || len(listing.Conversations) != 2 || len(listing.Terms) != 2 {
 		t.Fatalf("browse listing = %#v", listing)
 	}
 	var taskID uuid.UUID

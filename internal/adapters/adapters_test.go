@@ -120,7 +120,7 @@ func TestNotesReadsMnemonicMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read notes: %v", err)
 	}
-	if len(manifest.Documents) != 1 {
+	if len(manifest.Documents) != 2 {
 		t.Fatalf("documents = %d", len(manifest.Documents))
 	}
 	document := manifest.Documents[0]
@@ -129,6 +129,31 @@ func TestNotesReadsMnemonicMarkdown(t *testing.T) {
 	}
 	if strings.Contains(document.NormalizedText, "lifecycle") || !strings.Contains(document.RenderedContent, `<h1 id="adapter-finding">`) {
 		t.Fatalf("front matter leaked or heading missing: %#v", document)
+	}
+	if len(manifest.Relationships) != 1 || manifest.Relationships[0].TargetIdentity != "related-note" {
+		t.Fatalf("note relationships = %#v", manifest.Relationships)
+	}
+}
+
+func TestNotesExtractsTermsAndRelatedNotes(t *testing.T) {
+	directory := t.TempDir()
+	first := []byte("---\ntitle: First\nterms: [Knowledge Portal]\nrelatedTo:\n  - id: second\n    type: related-to\n---\nFirst note.\n")
+	second := []byte("---\ntitle: Second\n---\nSecond note.\n")
+	if err := os.WriteFile(filepath.Join(directory, "first.md"), first, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "second.md"), second, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Notes(directory, fixtureOptions("notes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(manifest.Documents[0].Terms, ","); got != "knowledge-portal" {
+		t.Fatalf("terms = %q", got)
+	}
+	if len(manifest.Relationships) != 1 || manifest.Relationships[0].Type != "note-related-to" || manifest.Relationships[0].TargetIdentity != "second" {
+		t.Fatalf("relationships = %#v", manifest.Relationships)
 	}
 }
 
@@ -153,7 +178,7 @@ func TestRepositoryRendersMarkdownAndYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read repository: %v", err)
 	}
-	if len(manifest.Documents) != 2 {
+	if len(manifest.Documents) != 3 {
 		t.Fatalf("documents = %d", len(manifest.Documents))
 	}
 	renderers := map[string]bool{}
@@ -165,6 +190,34 @@ func TestRepositoryRendersMarkdownAndYAML(t *testing.T) {
 	}
 	if !renderers["markdown"] || !renderers["yaml"] {
 		t.Fatalf("renderers = %#v", renderers)
+	}
+	var model synchronization.Document
+	for _, document := range manifest.Documents {
+		if strings.HasSuffix(document.Identity, "model.yml") {
+			model = document
+		}
+	}
+	if strings.Join(model.Tags, ",") != "architecture" || strings.Join(model.Terms, ",") != "knowledge-portal" || !strings.Contains(string(model.Metadata), `"schemaType":"model"`) {
+		t.Fatalf("YAML taxonomy metadata missing: %#v", model)
+	}
+	if model.Title != "project" {
+		t.Fatalf("YAML metadata replaced the content title: %q", model.Title)
+	}
+}
+
+func TestRepositoryCollectsTermDefinitionsBySchemaAndFilename(t *testing.T) {
+	root := t.TempDir()
+	source := []byte("$schema: https://refinery.systems/ontology/term\ntitle: Knowledge Portal\ndescription: A shared archive.\ntags: [Domain Language]\nterms: [knowledge]\n")
+	if err := os.WriteFile(filepath.Join(root, "knowledge-portal.yml"), source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Repository([]string{root}, RepositoryOptions{Options: fixtureOptions("repository"), Repository: "wyrd-company/fixture", Branch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := manifest.Documents[0]
+	if document.Title != "Knowledge Portal" || document.DefinesTerm != "knowledge-portal" || strings.Join(document.Terms, ",") != "knowledge" || strings.Join(document.Tags, ",") != "domain-language" {
+		t.Fatalf("term document = %#v", document)
 	}
 }
 

@@ -342,7 +342,7 @@ func waitForEmbeddings(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 
 func assertSourceCounts(t *testing.T, listing browse.BrowseResponse) {
 	t.Helper()
-	if len(listing.Tasks) != 2 || len(listing.Notes) != 1 || len(listing.Briefings) != 1 || len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 2 || len(listing.Conversations) != 2 {
+	if len(listing.Tasks) != 2 || len(listing.Notes) != 2 || len(listing.Briefings) != 1 || len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 3 || len(listing.Conversations) != 2 || len(listing.Terms) != 2 {
 		t.Fatalf("real source browse counts = tasks %d notes %d briefings %d repository %d conversations %d", len(listing.Tasks), len(listing.Notes), len(listing.Briefings), len(listing.Repositories[0].Documents), len(listing.Conversations))
 	}
 }

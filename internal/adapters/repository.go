@@ -3,8 +3,10 @@ package adapters
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,22 +77,64 @@ func Repository(paths []string, options RepositoryOptions) (synchronization.Mani
 			return manifest, fmt.Errorf("render repository document %q: %w", path, err)
 		}
 		title := titleFromPath(path)
-		if frontMatterTitle, ok := rendered.FrontMatter["title"].(string); ok && frontMatterTitle != "" {
+		if frontMatterTitle := firstString(rendered.FrontMatter, "title", "term", "slug"); frontMatterTitle != "" {
 			title = frontMatterTitle
-		} else if len(rendered.Headings) > 0 {
-			title = rendered.Headings[0].Text
+		} else if contentHeading := firstContentHeading(rendered.Headings); contentHeading != "" {
+			title = contentHeading
 		}
 		identity := repository + "@" + branch + ":" + relative
 		metadata := map[string]any{"repository": repository, "branch": branch, "path": relative, "format": renderer}
+		schema := firstString(rendered.FrontMatter, "$schema")
+		schemaType := schemaPathElement(schema)
+		if schema != "" {
+			metadata["schema"] = schema
+			metadata["schemaType"] = schemaType
+		}
 		document, err := makeDocument(identity, title, source, renderer, rendered, metadata, map[string]any{
 			"path": path, "repository": repository, "branch": branch,
 		}, stringSlice(rendered.FrontMatter["tags"]))
 		if err != nil {
 			return manifest, err
 		}
+		document.Terms = normalizeTaxonomyValues(stringSlice(rendered.FrontMatter["terms"]))
+		if schemaType == "term" {
+			document.DefinesTerm = normalizeTaxonomyValue(strings.TrimSuffix(pathpkg.Base(relative), pathpkg.Ext(relative)))
+		}
 		manifest.Documents = append(manifest.Documents, document)
 	}
 	return manifest, manifest.Validate()
+}
+
+func firstContentHeading(headings []rendering.Heading) string {
+	for _, heading := range headings {
+		switch strings.ToLower(strings.TrimSpace(heading.Text)) {
+		case "$schema", "tags", "terms":
+			continue
+		default:
+			return heading.Text
+		}
+	}
+	return ""
+}
+
+func firstString(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func schemaPathElement(value string) string {
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Path == "" {
+		return normalizeTaxonomyValue(pathpkg.Base(strings.TrimSuffix(value, "/")))
+	}
+	return normalizeTaxonomyValue(pathpkg.Base(strings.TrimSuffix(parsed.Path, "/")))
 }
 
 func collectFiles(paths []string) ([]string, error) {

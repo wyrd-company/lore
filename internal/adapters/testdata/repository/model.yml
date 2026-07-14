@@ -1,3 +1,8 @@
+$schema: https://refinery.systems/ontology/model
+tags:
+  - Architecture
+terms:
+  - Knowledge Portal
 project:
   name: Lore
   sources:

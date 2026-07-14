@@ -8,6 +8,7 @@ import { OverviewPage, RepositoryIndexPage, SourceIndexPage } from "./browse";
 import { DocumentPage } from "./document";
 import { SearchPage } from "./search";
 import { TasksPage } from "./tasks";
+import { TermIndexPage, TermPage } from "./terms";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode><BrowserRouter><Routes>
@@ -18,6 +19,8 @@ createRoot(document.getElementById("root")!).render(
       <Route path="tasks/:taskId" element={<DocumentPage section="tasks" />} />
       <Route path="notes" element={<SourceIndexPage section="notes" />} />
       <Route path="notes/:id" element={<DocumentPage section="notes" />} />
+      <Route path="terms" element={<TermIndexPage />} />
+      <Route path="terms/:termName" element={<TermPage />} />
       <Route path="briefings" element={<SourceIndexPage section="briefings" />} />
       <Route path="briefings/:id" element={<DocumentPage section="briefings" />} />
       <Route path="repo" element={<RepositoryIndexPage />} />

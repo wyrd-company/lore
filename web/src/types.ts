@@ -35,10 +35,25 @@ export interface RepositoryGroup {
   documents: DocumentSummary[];
 }
 
+export interface TermSummary {
+  name: string;
+  title: string;
+  defined: boolean;
+  definitionDocumentId?: string;
+  referenceCount: number;
+}
+
+export interface TermReference {
+  name: string;
+  title: string;
+  defined: boolean;
+}
+
 export interface BrowseResponse {
   project: ProjectSummary;
   sources: Array<{ id: string; sourceType: SourceType; sourceInstance: string; metadata: Json; documentCount: number; lastCompleteSyncAt?: string; updatedAt: string }>;
   tags: string[];
+  terms: TermSummary[];
   tasks: DocumentSummary[];
   taskStatuses: string[];
   notes: DocumentSummary[];
@@ -59,7 +74,7 @@ export interface RevisionSummary {
 }
 
 export interface Relationship {
-  direction: "dependency" | "dependent";
+  direction: "dependency" | "dependent" | "related";
   type: string;
   documentId: string;
   sourceIdentity: string;
@@ -74,6 +89,7 @@ export interface DocumentDetail extends DocumentSummary {
   renderer: string;
   provenance: Json;
   relationships: Relationship[];
+  terms: TermReference[];
   revisions: RevisionSummary[];
 }
 

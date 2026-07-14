@@ -37,6 +37,7 @@ func TestManifestValidate(t *testing.T) {
 		{"invalid boundary", func(m *Manifest) { m.Boundary = "all" }},
 		{"invalid hash", func(m *Manifest) { m.Documents[0].ContentHash = "nope" }},
 		{"duplicate identity", func(m *Manifest) { m.Documents = append(m.Documents, m.Documents[0]) }},
+		{"duplicate term", func(m *Manifest) { m.Documents[0].Terms = []string{"term", "term"} }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

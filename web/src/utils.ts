@@ -14,6 +14,10 @@ export function allDocuments(browse: BrowseResponse): DocumentSummary[] {
   return [...browse.tasks, ...browse.notes, ...browse.briefings, ...browse.repositories.flatMap((group) => group.documents), ...browse.conversations];
 }
 
+export function displayTaxonomyName(value: string): string {
+  return value.split("-").map((part) => part ? part[0].toUpperCase() + part.slice(1) : part).join(" ");
+}
+
 export function documentHref(project: string, document: Pick<DocumentSummary, "id" | "sourceType" | "sourceIdentity" | "metadata">): string {
   const root = `/${encodeURIComponent(project)}`;
   switch (document.sourceType) {

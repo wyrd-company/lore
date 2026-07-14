@@ -46,7 +46,48 @@ func Notes(directory string, options Options) (synchronization.Manifest, error) 
 		if err != nil {
 			return manifest, err
 		}
+		document.Terms = normalizeTaxonomyValues(stringSlice(rendered.FrontMatter["terms"]))
 		manifest.Documents = append(manifest.Documents, document)
+		for _, related := range relatedNoteIdentities(rendered.FrontMatter["relatedTo"]) {
+			if related != identity {
+				manifest.Relationships = append(manifest.Relationships, synchronization.Relationship{
+					SourceIdentity: identity, TargetIdentity: related, Type: "note-related-to",
+				})
+			}
+		}
 	}
 	return manifest, manifest.Validate()
+}
+
+func relatedNoteIdentities(value any) []string {
+	var result []string
+	for _, item := range anySlice(value) {
+		switch typed := item.(type) {
+		case string:
+			result = append(result, strings.TrimSpace(typed))
+		case map[string]any:
+			if id, ok := typed["id"].(string); ok {
+				result = append(result, strings.TrimSpace(id))
+			}
+		}
+	}
+	sort.Strings(result)
+	return compactStrings(result)
+}
+
+func anySlice(value any) []any {
+	if values, ok := value.([]any); ok {
+		return values
+	}
+	return nil
+}
+
+func compactStrings(values []string) []string {
+	result := values[:0]
+	for _, value := range values {
+		if value != "" && (len(result) == 0 || result[len(result)-1] != value) {
+			result = append(result, value)
+		}
+	}
+	return result
 }

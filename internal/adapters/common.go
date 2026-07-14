@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/wyrd-company/lore/internal/rendering"
 	"github.com/wyrd-company/lore/internal/synchronization"
@@ -38,7 +39,7 @@ func makeDocument(identity, title string, source []byte, renderer string, render
 	if err != nil {
 		return synchronization.Document{}, fmt.Errorf("encode provenance: %w", err)
 	}
-	tags = normalizeTags(tags)
+	tags = normalizeTaxonomyValues(tags)
 	hash := sha256.Sum256(source)
 	return synchronization.Document{
 		Identity: identity, Title: title, ContentHash: hex.EncodeToString(hash[:]), NormalizedText: rendered.Text,
@@ -46,15 +47,33 @@ func makeDocument(identity, title string, source []byte, renderer string, render
 	}, nil
 }
 
-func normalizeTags(tags []string) []string {
-	result := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		if normalized := strings.TrimSpace(tag); normalized != "" {
+func normalizeTaxonomyValues(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if normalized := normalizeTaxonomyValue(value); normalized != "" {
 			result = append(result, normalized)
 		}
 	}
 	slices.Sort(result)
 	return slices.Compact(result)
+}
+
+func normalizeTaxonomyValue(value string) string {
+	var normalized strings.Builder
+	separator := false
+	for _, character := range strings.ToLower(strings.TrimSpace(value)) {
+		switch {
+		case unicode.IsSpace(character) || character == '_' || character == '-':
+			separator = normalized.Len() > 0
+		default:
+			if separator {
+				normalized.WriteByte('-')
+				separator = false
+			}
+			normalized.WriteRune(character)
+		}
+	}
+	return strings.Trim(normalized.String(), "-")
 }
 
 func titleFromPath(path string) string {

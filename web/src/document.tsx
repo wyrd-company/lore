@@ -4,12 +4,13 @@ import { api } from "./api";
 import { PageError, PageLoading, useAttribution, useProject } from "./app";
 import type { Annotation, DocumentDetail, DocumentSummary, Json, RevisionSummary } from "./types";
 import { taskStatusKey } from "./task-board";
+import { linkTaxonomyText } from "./taxonomy";
 import { allDocuments, documentHref, jsonString, relativeTime, shortHash, sourceBadgeType, sourceLabel } from "./utils";
 
 type DraftTarget = { selector: Json; selectedQuote?: string; quotePrefix?: string; quoteSuffix?: string; structuralLocation: Json };
 
-export function DocumentPage({ section }: { section: "tasks" | "notes" | "briefings" | "repo" | "conversations" }) {
-  const { project = "", id, taskId, repo, branch, "*": path } = useParams();
+export function DocumentPage({ section }: { section: "tasks" | "notes" | "terms" | "briefings" | "repo" | "conversations" }) {
+  const { project = "", id, taskId, termName, repo, branch, "*": path } = useParams();
   const { browse, loading: browseLoading } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -21,7 +22,7 @@ export function DocumentPage({ section }: { section: "tasks" | "notes" | "briefi
   const [reloadToken, setReloadToken] = useState(0);
   const [toast, setToast] = useState("");
   const [draftTarget, setDraftTarget] = useState<DraftTarget>();
-  const document = useMemo(() => resolveDocument(browse, section, { id, taskId, repo, branch, path }), [browse, section, id, taskId, repo, branch, path]);
+  const document = useMemo(() => resolveDocument(browse, section, { id, taskId, termName, repo, branch, path }), [browse, section, id, taskId, termName, repo, branch, path]);
 
   useEffect(() => {
     if (!document) { if (!browseLoading && browse) { setError("Document not found in this project."); setLoading(false); } return; }
@@ -58,7 +59,7 @@ export function DocumentPage({ section }: { section: "tasks" | "notes" | "briefi
 
   return <div className="l-page">
     <nav className="lore-crumbs" aria-label="Breadcrumb"><Link to={`/${project}`}>{browse?.project.name}</Link><span className="lore-crumbs__sep">/</span><Link to={`/${project}/${section}`}>{sectionLabel(section)}</Link><span className="lore-crumbs__sep">/</span><span>{title}</span></nav>
-    <header className="lore-page-head"><div className="lore-page-head__row"><div><div className="lore-page-head__title-row"><span className="lore-source-badge" data-type={sourceBadgeType(detail.sourceType)}>{sourceLabel(detail.sourceType)}</span><h1 className="lore-page-head__title">{title}</h1>{detail.sourceType === "task" && <span className="lore-status" data-state={jsonString(metadata.status) ?? "todo"}>{jsonString(metadata.status) ?? "todo"}</span>}</div></div><div className="lore-page-head__actions">
+    <header className="lore-page-head"><div className="lore-page-head__row"><div><div className="lore-page-head__title-row"><span className="lore-source-badge" data-type={sourceBadgeType(detail.sourceType)}>{section === "terms" ? "Term" : sourceLabel(detail.sourceType)}</span>{detail.sourceType === "task" && <span className="task-number">#{detail.sourceIdentity}</span>}<h1 className="lore-page-head__title">{title}</h1>{detail.sourceType === "task" && <span className="lore-status" data-state={jsonString(metadata.status) ?? "todo"}>{jsonString(metadata.status) ?? "todo"}</span>}</div></div><div className="lore-page-head__actions">
       {detail.sourceType === "task" && <button className={`lore-btn lore-btn--ghost lore-btn--icon task-title-target lore-anno-target ${titleAnnotation?.id === searchParams.get("anno") ? "is-active" : ""}`} data-state={titleAnnotation?.status} aria-label="Annotate task title" onClick={() => setDraftTarget({ selector: { kind: "task-field", field: "title" }, structuralLocation: { taskField: "title" } })}>＋</button>}
       {retained.length > 0 && <label className="lore-revision"><span className="lore-revision__dot" /><span className="lore-visually-hidden">Revision</span><select aria-label="Revision" value={detail.contentHash} onChange={(event) => switchRevision(event.target.value)}><option value={currentHash}>Current</option>{retained.map((revision) => <option value={revision.contentHash} key={revision.id}>{shortHash(revision.contentHash)} · {new Date(revision.createdAt).toLocaleDateString()} · {revision.annotationCount} annotations</option>)}</select></label>}
       <button className="lore-btn lore-btn--secondary lore-btn--sm" onClick={copyLink}>Copy link</button>
@@ -68,19 +69,28 @@ export function DocumentPage({ section }: { section: "tasks" | "notes" | "briefi
     </header>
     {detail.sourceType === "task" && <TaskMetadata detail={detail} project={project} annotations={annotations.filter((item) => item.revisionIdentity === detail.revisionId)} activeId={searchParams.get("anno") ?? ""} onTarget={setDraftTarget} />}
     {detail.renderer === "markdown" && detail.sourceType !== "task" && Object.keys(detail.metadata).length > 0 && <FrontMatter metadata={detail.metadata} />}
-    <div className="l-doc"><DocumentContent detail={detail} annotations={annotations} activeAnnotation={searchParams.get("anno") ?? ""} onTarget={setDraftTarget} />
-      <aside className="lore-doc__rail"><AnnotationRail project={project} detail={detail} revisions={detail.revisions} annotations={annotations} activeId={searchParams.get("anno") ?? ""} onActive={(annotation) => { const next = new URLSearchParams(searchParams); next.set("anno", annotation.id); setSearchParams(next); }} onChanged={reload} draftTarget={draftTarget} clearDraft={() => setDraftTarget(undefined)} /></aside>
+    <div className={detail.sourceType === "briefing" ? "brief-detail-layout" : undefined}>
+      {detail.sourceType === "briefing" && browse && <BriefSidebar project={project} current={detail.id} documents={browse.briefings} />}
+      <div className="brief-detail-main"><div className="l-doc"><DocumentContent project={project} detail={detail} tags={browse?.tags ?? []} terms={browse?.terms ?? []} annotations={annotations} activeAnnotation={searchParams.get("anno") ?? ""} onTarget={setDraftTarget} />
+        <aside className="lore-doc__rail"><AnnotationRail project={project} detail={detail} revisions={detail.revisions} annotations={annotations} activeId={searchParams.get("anno") ?? ""} onActive={(annotation) => { const next = new URLSearchParams(searchParams); next.set("anno", annotation.id); setSearchParams(next); }} onChanged={reload} draftTarget={draftTarget} clearDraft={() => setDraftTarget(undefined)} /></aside>
+      </div></div>
     </div>
     {detail.sourceType === "task" && <TaskRelationships detail={detail} project={project} browseDocuments={browse ? allDocuments(browse) : []} />}
+    {detail.sourceType === "note" && <NoteRelationships detail={detail} project={project} browseDocuments={browse ? allDocuments(browse) : []} />}
     {isPrior && annotations.filter((item) => item.revisionIdentity === detail.revisionId).every((item) => item.status !== "open") && <p className="lore-muted">This retained revision is eligible for administrative cleanup.</p>}
+    {detail.terms.length > 0 && <TermsFooter project={project} terms={detail.terms} />}
     {toast && <div className="lore-toast copy-feedback" role="status">✓ {toast}</div>}
   </div>;
 }
 
-function resolveDocument(browse: ReturnType<typeof useProject>["browse"], section: string, params: { id?: string; taskId?: string; repo?: string; branch?: string; path?: string }): DocumentSummary | undefined {
+function resolveDocument(browse: ReturnType<typeof useProject>["browse"], section: string, params: { id?: string; taskId?: string; termName?: string; repo?: string; branch?: string; path?: string }): DocumentSummary | undefined {
   if (!browse) return undefined;
   if (section === "tasks") return browse.tasks.find((item) => item.sourceIdentity === params.taskId || item.id === params.taskId);
   if (section === "notes") return browse.notes.find((item) => item.id === params.id || item.sourceIdentity === params.id);
+  if (section === "terms") {
+    const definition = browse.terms.find((item) => item.name === params.termName)?.definitionDocumentId;
+    return allDocuments(browse).find((item) => item.id === definition);
+  }
   if (section === "briefings") return browse.briefings.find((item) => item.id === params.id || item.sourceIdentity === params.id);
   if (section === "conversations") return browse.conversations.find((item) => item.id === params.id || item.sourceIdentity === params.id);
   return browse.repositories.flatMap((group) => group.documents).find((item) => jsonString(item.metadata.repository) === params.repo && jsonString(item.metadata.branch) === params.branch && jsonString(item.metadata.path) === params.path);
@@ -111,15 +121,33 @@ function TaskRelationships({ detail, project, browseDocuments }: { detail: Docum
   return <section><h2>Task relationships</h2><div className="lore-deps">{column("dependency", "Depends on", "←")}{column("dependent", "Blocks / dependents", "→")}</div></section>;
 }
 
-function DocumentContent({ detail, annotations, activeAnnotation, onTarget }: { detail: DocumentDetail; annotations: Annotation[]; activeAnnotation: string; onTarget: (target: DraftTarget) => void }) {
+function NoteRelationships({ detail, project, browseDocuments }: { detail: DocumentDetail; project: string; browseDocuments: DocumentSummary[] }) {
+  const related = [...new Map(detail.relationships.filter((item) => item.type === "note-related-to").map((item) => browseDocuments.find((document) => document.id === item.documentId)).filter((document): document is DocumentSummary => Boolean(document)).map((document) => [document.id, document])).values()];
+  if (!related.length) return null;
+  return <section className="related-notes"><h2>Related notes</h2><DocumentLinks project={project} documents={related} /></section>;
+}
+
+function DocumentLinks({ project, documents }: { project: string; documents: DocumentSummary[] }) {
+  return <div className="lore-list">{documents.map((document) => <Link className="lore-row" to={documentHref(project, document)} key={document.id}><span className="lore-source-badge" data-type={sourceBadgeType(document.sourceType)}>{sourceLabel(document.sourceType)}</span><span className="lore-row__title">{document.title}</span><span aria-hidden="true">›</span></Link>)}</div>;
+}
+
+function BriefSidebar({ project, current, documents }: { project: string; current: string; documents: DocumentSummary[] }) {
+  return <aside className="brief-sidebar" aria-label="Other briefings"><div className="task-facet-label">Briefings</div><nav>{documents.map((document) => <Link className={document.id === current ? "is-active" : ""} aria-current={document.id === current ? "page" : undefined} to={documentHref(project, document)} key={document.id}>{document.title}</Link>)}</nav></aside>;
+}
+
+function TermsFooter({ project, terms }: { project: string; terms: DocumentDetail["terms"] }) {
+  return <footer className="terms-footer"><h2>Terms</h2><div className="facet-stack">{terms.map((term) => <Link className={`lore-chip taxonomy-link taxonomy-link--term ${term.defined ? "" : "is-missing"}`} to={`/${project}/terms/${encodeURIComponent(term.name)}`} key={term.name}>{term.title}{!term.defined && <span aria-label="missing definition"> △</span>}</Link>)}</div></footer>;
+}
+
+function DocumentContent({ project, detail, tags, terms, annotations, activeAnnotation, onTarget }: { project: string; detail: DocumentDetail; tags: string[]; terms: NonNullable<ReturnType<typeof useProject>["browse"]>["terms"]; annotations: Annotation[]; activeAnnotation: string; onTarget: (target: DraftTarget) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [popover, setPopover] = useState<{ x: number; y: number; target: DraftTarget }>();
   const revisionAnnotations = annotations.filter((item) => item.revisionIdentity === detail.revisionId);
   useEffect(() => {
     const root = ref.current; if (!root) return;
     root.innerHTML = detail.renderedContent || `<div class="lore-empty"><div class="lore-empty__title">No rendered body</div><div class="lore-empty__hint">The source revision contains no displayable content.</div></div>`;
-    enhanceRenderedContent(root, detail, revisionAnnotations, activeAnnotation, onTarget);
-  }, [detail, revisionAnnotations, activeAnnotation]);
+    enhanceRenderedContent(root, project, detail, tags, terms, revisionAnnotations, activeAnnotation, onTarget);
+  }, [project, detail, tags, terms, revisionAnnotations, activeAnnotation]);
   const selected = (event: React.MouseEvent) => {
     const root = ref.current; const selection = getSelection(); if (!root || !selection || selection.isCollapsed || !selection.rangeCount || !root.contains(selection.anchorNode)) { setPopover(undefined); return; }
     const quote = selection.toString().trim(); if (!quote) return;
@@ -131,7 +159,7 @@ function DocumentContent({ detail, annotations, activeAnnotation, onTarget }: { 
   return <article className="document-surface"><div ref={ref} className="document-content lore-prose" onMouseUp={selected} />{popover && <div className="lore-anno-pop" style={{ left: popover.x, top: popover.y }}><button onClick={() => { onTarget(popover.target); setPopover(undefined); getSelection()?.removeAllRanges(); }}>＋ Annotate</button></div>}</article>;
 }
 
-function enhanceRenderedContent(root: HTMLElement, detail: DocumentDetail, annotations: Annotation[], activeId: string, open: (target: DraftTarget) => void) {
+function enhanceRenderedContent(root: HTMLElement, project: string, detail: DocumentDetail, tags: string[], terms: NonNullable<ReturnType<typeof useProject>["browse"]>["terms"], annotations: Annotation[], activeId: string, open: (target: DraftTarget) => void) {
   root.querySelectorAll("table").forEach((table) => { if (!table.parentElement?.classList.contains("table-scroll")) { const wrapper = document.createElement("div"); wrapper.className = "table-scroll"; table.before(wrapper); wrapper.append(table); } });
   root.querySelectorAll(".lore-msg").forEach((message) => { const header = message.querySelector("header"); if (header) { header.className = "lore-msg__role"; const avatar = document.createElement("span"); avatar.className = "lore-msg__avatar"; avatar.textContent = (message.getAttribute("data-role") ?? "M")[0].toUpperCase(); message.prepend(avatar); } });
   root.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id],h4[id],h5[id],h6[id],[data-yaml-path],.lore-msg[id],.lore-thinking[id]").forEach((element) => {
@@ -149,6 +177,7 @@ function enhanceRenderedContent(root: HTMLElement, detail: DocumentDetail, annot
     if (!target && annotation.selectedQuote) target = wrapFirstQuote(root, annotation.selectedQuote);
     if (target) { target.classList.add("lore-anno-target"); target.dataset.state = annotation.status; target.dataset.annotationId = annotation.id; if (annotation.id === activeId) { target.classList.add("is-active"); setTimeout(() => target?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }), 0); } }
   }
+  linkTaxonomyText(root, project, tags, terms);
 }
 
 function selectorFor(element: HTMLElement, sourceType: string): Json {

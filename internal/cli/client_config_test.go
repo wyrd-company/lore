@@ -128,7 +128,7 @@ func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM projects), (SELECT count(*) FROM documents WHERE deleted_at IS NULL)`).Scan(&projects, &documents); err != nil {
 		t.Fatal(err)
 	}
-	if projects != 3 || documents != 3 {
+	if projects != 3 || documents != 6 {
 		t.Fatalf("config integration persistence: projects=%d documents=%d", projects, documents)
 	}
 

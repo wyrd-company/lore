@@ -25,6 +25,7 @@ type taskFrontMatter struct {
 	Completed   string   `yaml:"completed,omitempty" json:"completed,omitempty"`
 	Assignee    string   `yaml:"assignee,omitempty" json:"assignee,omitempty"`
 	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Terms       []string `yaml:"terms,omitempty" json:"terms,omitempty"`
 	Due         string   `yaml:"due,omitempty" json:"due,omitempty"`
 	Estimate    string   `yaml:"estimate,omitempty" json:"estimate,omitempty"`
 	Parent      int      `yaml:"parent,omitempty" json:"parent,omitempty"`
@@ -112,6 +113,7 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 		if err != nil {
 			return manifest, err
 		}
+		document.Terms = normalizeTaxonomyValues(frontMatter.Terms)
 		manifest.Documents = append(manifest.Documents, document)
 	}
 	manifest.Metadata, err = json.Marshal(taskBoardMetadata{Statuses: statuses})

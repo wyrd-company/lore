@@ -39,14 +39,27 @@ test("validates the complete archive journey with real services", async ({ page 
   await expect(page.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.locator(".lore-task-card").filter({ hasText: "Build foundation" }).click();
   await expect(page.getByRole("heading", { name: "Build foundation", level: 1 })).toBeVisible();
+  await expect(page.locator(".task-number")).toHaveText("#1");
   await expect(page.getByLabel("Revision", { exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: /Build adapters/ }).click();
   await expect(page.getByRole("heading", { name: "Build adapters", level: 1 })).toBeVisible();
   await page.getByRole("link", { name: /Build foundation/ }).click();
 
-  await page.getByRole("link", { name: /Notes 3/ }).click();
+  await page.getByRole("link", { name: /Notes 4/ }).click();
+  await page.locator(".lore-facet").filter({ hasText: "summary" }).click();
+  await expect(page).toHaveURL(/role=summary/);
+  await page.locator(".lore-facet").filter({ hasText: /^lore/ }).first().click();
+  await expect(page).toHaveURL(/tag=lore/);
+  await page.locator(".lore-facet").filter({ hasText: "permanent" }).click();
+  await expect(page).toHaveURL(/lifecycle=permanent/);
+  await page.locator(".lore-facet").filter({ hasText: /^lore/ }).last().click();
+  await expect(page).toHaveURL(/projectName=lore/);
+  await page.getByLabel("Sort").selectOption("title");
+  await expect(page).toHaveURL(/sort=title/);
   await openRow(page, "Adapter finding");
   await expect(page.getByRole("heading", { name: "Adapter finding", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Related notes" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Related adapter context/ })).toBeVisible();
   const revision = page.getByLabel("Revision", { exact: true });
   await expect(revision).toBeVisible();
   const priorValue = await revision.locator("option").filter({ hasText: "annotations" }).getAttribute("value");
@@ -84,16 +97,32 @@ test("validates the complete archive journey with real services", async ({ page 
 
   await page.getByRole("link", { name: /Briefings 1/ }).click();
   await openRow(page, "Architecture");
+  await expect(page.getByRole("complementary", { name: "Other briefings" }).getByRole("link", { name: "Architecture" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".document-content #boundary")).toContainText("source files authoritative");
 
-  await page.getByRole("link", { name: /Repository 2/ }).click();
+  await page.getByRole("link", { name: /Repository 3/ }).click();
   await expect(page.getByRole("heading", { name: "git@github.com:wyrd-company/lore-e2e-fixture.git" })).toBeVisible();
   await expect(page.getByText(/e2e\/real-services/)).toBeVisible();
+  await page.locator(".lore-facet").filter({ hasText: /^term/ }).click();
+  await expect(page).toHaveURL(/schema=term/);
+  await expect(page.locator(".lore-row")).toHaveCount(1);
+  await page.locator(".lore-facet").filter({ hasText: /^term/ }).click();
   await openRow(page, "Fixture repository");
   await expect(page.locator(".document-content")).toContainText("shared renderer");
-  await page.getByRole("link", { name: /Repository 2/ }).click();
+  await page.getByRole("link", { name: /Repository 3/ }).click();
   await openRow(page, "project");
   await expect(page.locator(".document-content [data-yaml-path]").first()).toBeVisible();
+  await expect(page.locator('.document-content .taxonomy-link--term[data-taxonomy="knowledge-portal"]')).toBeVisible();
+  await expect(page.locator('.document-content .taxonomy-link--tag[data-taxonomy="architecture"]')).toBeVisible();
+  await expect(page.locator(".terms-footer").getByRole("link", { name: "Knowledge Portal" })).toBeVisible();
+  await page.getByRole("link", { name: /Terms 1/ }).click();
+  await openRow(page, "Knowledge Portal");
+  await expect(page.getByRole("heading", { name: "Knowledge Portal", level: 1 })).toBeVisible();
+  await page.getByRole("link", { name: /Terms 1/ }).click();
+  const missingTerms = page.getByRole("heading", { name: "Missing definitions" }).locator("..");
+  await expect(missingTerms).toBeVisible();
+  await missingTerms.locator('a[href="/e2e-primary/terms/knowledge"]').click();
+  await expect(page.getByText("No definition has been uploaded")).toBeVisible();
 
   await page.getByRole("link", { name: /Conversations 2/ }).click();
   await openRow(page, "Implement Codex normalization");

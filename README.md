@@ -328,13 +328,21 @@ GET /api/projects/{project}/documents/{document-uuid}/revisions/{revision-uuid}
 GET /api/projects/{project}/search?q=...
 ```
 
-The browse response includes source instances, type counts, tags, tasks, their
-source-board status order, notes, briefings, repository documents grouped by
+The browse response includes source instances, type counts, the unified project
+tag store, terms, tasks, their source-board status order, notes, briefings,
+repository documents grouped by
 repository and branch, conversations, and per-document embedding coverage. Task
 summaries also include dependency, dependent, and open-annotation counts for the
 read-only board. Document detail includes current rendered content, normalized
-text, metadata, provenance, tags, revision history, and task dependencies and
-dependents in both directions.
+text, metadata, provenance, tags, referenced terms, revision history, task
+dependencies and dependents in both directions, and note relationships.
+
+Repository YAML documents and Markdown front matter contribute top-level `tags`
+and `terms` values. Lore normalizes those values into project-scoped stores. The
+last path segment of `$schema` becomes the repository document's schema type. A
+repository document whose schema path ends in `/term` defines the term named by
+the document's filename stem. Referenced terms without an uploaded definition
+remain visible through a missing-term page.
 
 The project tasks page renders the ingested kanban-md vocabulary as a read-only
 board. Recognized lifecycle statuses and synonyms share canonical lanes; custom
@@ -344,6 +352,17 @@ task pages and expose priority, relationship, and open-annotation context withou
 drag-and-drop or mutation controls. Narrow screens default to List while the
 Board view keeps fixed-width, independently scrolling columns inside its own
 horizontal scroller.
+
+The notes page provides URL-backed role, tag, lifecycle, and source-project
+facets. Notes sort by their source `createdAt`, source `updatedAt`, or title, with
+Lore synchronization timestamps as fallbacks. Mnemonic `relatedTo` entries link
+between notes available in the same synchronized source.
+
+Repository browsing provides URL-backed repository, schema type, and tag facets.
+Briefing detail pages include contextual navigation to other project briefings.
+On every task, note, briefing, repository, and conversation page, visible text
+matching a normalized tag or term becomes a link. Referenced terms are also
+listed at the bottom of the page, including links to missing definitions.
 
 Search accepts repeatable or comma-separated filters:
 

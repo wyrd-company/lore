@@ -70,6 +70,9 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 		if applyErr := replaceTags(ctx, tx, projectID, documentID, document.Tags); applyErr != nil {
 			return result, fmt.Errorf("replace tags for %q: %w", document.Identity, applyErr)
 		}
+		if applyErr := replaceTerms(ctx, tx, projectID, documentID, document.Terms, document.DefinesTerm); applyErr != nil {
+			return result, fmt.Errorf("replace terms for %q: %w", document.Identity, applyErr)
+		}
 		indexInput := indexing.RevisionInput{
 			ProjectID: projectID, RevisionID: revisionID, SourceType: manifest.SourceType,
 			Title: document.Title, NormalizedText: document.NormalizedText, Metadata: document.Metadata, Tags: document.Tags,
@@ -215,6 +218,42 @@ func replaceTags(ctx context.Context, tx pgx.Tx, projectID, documentID uuid.UUID
 	return nil
 }
 
+func replaceTerms(ctx context.Context, tx pgx.Tx, projectID, documentID uuid.UUID, terms []string, definesTerm string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM document_terms WHERE project_id = $1 AND document_id = $2`, projectID, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM term_definitions WHERE project_id = $1 AND document_id = $2`, projectID, documentID); err != nil {
+		return err
+	}
+	resolve := func(name string) (uuid.UUID, error) {
+		var termID uuid.UUID
+		err := tx.QueryRow(ctx, `
+			INSERT INTO terms (project_id, name) VALUES ($1, $2)
+			ON CONFLICT (project_id, name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id`, projectID, name).Scan(&termID)
+		return termID, err
+	}
+	for _, name := range terms {
+		termID, err := resolve(name)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO document_terms (project_id, document_id, term_id) VALUES ($1, $2, $3)`, projectID, documentID, termID); err != nil {
+			return err
+		}
+	}
+	if definesTerm != "" {
+		termID, err := resolve(definesTerm)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO term_definitions (project_id, term_id, document_id) VALUES ($1, $2, $3)`, projectID, termID, documentID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func replaceRelationships(ctx context.Context, tx pgx.Tx, projectID, sourceInstanceID uuid.UUID, boundary Boundary, documentIDs map[string]uuid.UUID, relationships []Relationship) error {
 	if boundary == BoundaryComplete {
 		if _, err := tx.Exec(ctx, `
@@ -240,6 +279,9 @@ func replaceRelationships(ctx context.Context, tx pgx.Tx, projectID, sourceInsta
 			SELECT id FROM documents
 			WHERE project_id = $1 AND source_instance_id = $2 AND source_identity = $3 AND deleted_at IS NULL`,
 			projectID, sourceInstanceID, relationship.TargetIdentity).Scan(&targetID); err != nil {
+			if relationship.Type == "note-related-to" && errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
 			return fmt.Errorf("resolve relationship target %q: %w", relationship.TargetIdentity, err)
 		}
 		if _, err := tx.Exec(ctx, `
