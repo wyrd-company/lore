@@ -19,7 +19,6 @@ component code — add or adjust a token instead.
 | `--text-2xs` … `--text-4xl` | 11, 12, 13, 15(base), 16(prose), 19, 23, 29, 36, 47 px |
 | `--leading-tight/snug/normal/relaxed` | 1.22 / 1.40 / 1.60 / 1.72 |
 | `--tracking-tight/wide/caps` | -0.011em / 0.02em / 0.08em (eyebrows) |
-| `--measure` | 72ch — max prose reading width |
 
 ## Spacing (4px base) & shape
 

@@ -45,13 +45,11 @@
   --leading-tight: 1.22;
   --leading-snug: 1.4;
   --leading-normal: 1.6;
-  --leading-relaxed: 1.72; /* prose reading measure */
+  --leading-relaxed: 1.72; /* prose line height */
 
   --tracking-tight: -0.011em;
   --tracking-wide: 0.02em;
   --tracking-caps: 0.08em; /* small-caps eyebrows */
-
-  --measure: 72ch;        /* max reading width for prose */
 
   /* --- Spacing scale (4px base) ---------------------------------------- */
   --space-0: 0;
@@ -433,7 +431,6 @@ hr {
    This block is the contract uploaded briefings rely on.
    ========================================================================== */
 .lore-prose {
-  max-width: var(--measure);
   color: var(--text-body);
   font-family: var(--font-body);
   font-size: var(--text-md);
@@ -441,7 +438,6 @@ hr {
   overflow-wrap: break-word;
   hyphens: auto;
 }
-.lore-prose--wide { max-width: none; }
 
 /* Vertical rhythm: flow spacing between siblings */
 .lore-prose > * + * { margin-top: var(--space-4); }
@@ -843,11 +839,8 @@ hr {
   background: var(--bg-canvas);
 }
 .l-page {
-  max-width: 1080px;
-  margin: 0 auto;
   padding: var(--space-6) var(--space-6) var(--space-9);
 }
-.l-page--reading { max-width: 880px; }
 
 /* Two-column page: content + annotation rail */
 .l-doc {

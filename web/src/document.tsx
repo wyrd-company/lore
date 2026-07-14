@@ -56,7 +56,7 @@ export function DocumentPage({ section }: { section: "tasks" | "notes" | "briefi
   const currentHash = detail.revisions.find((item) => item.current)?.contentHash ?? detail.contentHash;
   const switchRevision = (hash: string) => { const next = new URLSearchParams(searchParams); hash && hash !== currentHash ? next.set("rev", hash) : next.delete("rev"); next.delete("anno"); setSearchParams(next); };
 
-  return <div className="l-page l-page--reading">
+  return <div className="l-page">
     <nav className="lore-crumbs" aria-label="Breadcrumb"><Link to={`/${project}`}>{browse?.project.name}</Link><span className="lore-crumbs__sep">/</span><Link to={`/${project}/${section}`}>{sectionLabel(section)}</Link><span className="lore-crumbs__sep">/</span><span>{title}</span></nav>
     <header className="lore-page-head"><div className="lore-page-head__row"><div><div className="lore-page-head__title-row"><span className="lore-source-badge" data-type={sourceBadgeType(detail.sourceType)}>{sourceLabel(detail.sourceType)}</span><h1 className="lore-page-head__title">{title}</h1>{detail.sourceType === "task" && <span className="lore-status" data-state={jsonString(metadata.status) ?? "todo"}>{jsonString(metadata.status) ?? "todo"}</span>}</div></div><div className="lore-page-head__actions">
       {detail.sourceType === "task" && <button className={`lore-btn lore-btn--ghost lore-btn--icon task-title-target lore-anno-target ${titleAnnotation?.id === searchParams.get("anno") ? "is-active" : ""}`} data-state={titleAnnotation?.status} aria-label="Annotate task title" onClick={() => setDraftTarget({ selector: { kind: "task-field", field: "title" }, structuralLocation: { taskField: "title" } })}>＋</button>}
@@ -128,7 +128,7 @@ function DocumentContent({ detail, annotations, activeAnnotation, onTarget }: { 
     setPopover({ x: rect.left - container.left, y: rect.top - container.top - 42, target: { selector: { kind: "text-quote", exact: quote, prefix, suffix }, selectedQuote: quote, quotePrefix: prefix, quoteSuffix: suffix, structuralLocation: structuralLocationFor(selection.anchorNode) } });
     event.stopPropagation();
   };
-  return <article className="document-surface"><div ref={ref} className={`document-content lore-prose ${detail.sourceType === "briefing" ? "lore-prose--wide" : ""}`} onMouseUp={selected} />{popover && <div className="lore-anno-pop" style={{ left: popover.x, top: popover.y }}><button onClick={() => { onTarget(popover.target); setPopover(undefined); getSelection()?.removeAllRanges(); }}>＋ Annotate</button></div>}</article>;
+  return <article className="document-surface"><div ref={ref} className="document-content lore-prose" onMouseUp={selected} />{popover && <div className="lore-anno-pop" style={{ left: popover.x, top: popover.y }}><button onClick={() => { onTarget(popover.target); setPopover(undefined); getSelection()?.removeAllRanges(); }}>＋ Annotate</button></div>}</article>;
 }
 
 function enhanceRenderedContent(root: HTMLElement, detail: DocumentDetail, annotations: Annotation[], activeId: string, open: (target: DraftTarget) => void) {

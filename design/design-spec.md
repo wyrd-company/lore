@@ -57,8 +57,8 @@ A CSS grid with four regions:
   right. Frosted (`backdrop-filter`) so content scrolls softly beneath it.
 - **Sidebar** (`.l-sidebar`): project-scoped navigation. Collapses to an
   off-canvas drawer under 900px (`data-open` toggled by a header hamburger).
-- **Main** (`.l-main`): the routed page, centered in `.l-page` (max 1080px;
-  `.l-page--reading` narrows to 880px for single-document reading).
+- **Main** (`.l-main`): the routed page. `.l-page` fills the available width
+  inside the application shell and provides consistent viewport padding.
 
 ### 1.2 Project selector (`.lore-project-select`)
 
@@ -359,8 +359,8 @@ author CSS:
 
 - **Headings** in `--font-display`, tight leading; `h2` gets a hairline
   underline for section rhythm; `h5`/`h6` become small-caps eyebrows.
-- **Body** at `--text-md` / `--leading-relaxed`, capped at `--measure` (72ch)
-  for a comfortable line; first paragraph reads as a lead.
+- **Body** at `--text-md` / `--leading-relaxed`, using the full available
+  content width; first paragraph reads as a lead.
 - **Lists** with custom verdigris bullet dots, tabular ordered markers, GFM
   task-list checkboxes, and definition lists.
 - **Blockquotes** as tinted accent panels; **code** inline (bordered chip) and
@@ -489,7 +489,7 @@ avoid layout shift.
 
 **State:** `lore-empty`, `lore-error`, `lore-skel`, `lore-spinner`.
 
-**Prose contract:** `lore-prose` (+ `--wide`) and all bare semantic HTML within.
+**Prose contract:** `lore-prose` and all bare semantic HTML within.
 
 ---
 
@@ -498,8 +498,7 @@ avoid layout shift.
 Full values in `site.css` and `tokens.md`. Highlights:
 
 - **Type:** display `Fraunces`(→Iowan/Georgia), body `Public Sans`(→system),
-  mono `JetBrains Mono`(→ui-monospace). Scale `--text-2xs`(11px)…`--text-4xl`(47px);
-  reading measure 72ch.
+  mono `JetBrains Mono`(→ui-monospace). Scale `--text-2xs`(11px)…`--text-4xl`(47px).
 - **Spacing:** 4px base, `--space-1`…`--space-9`.
 - **Radii:** 3 / 5 / 8 / 12px + pill. **Borders:** hairline 1px, thick 2px.
 - **Color:** warm-paper light / ink dark surfaces; verdigris `--accent`; ochre
