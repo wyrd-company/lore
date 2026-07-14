@@ -117,7 +117,7 @@ The published image is `ghcr.io/wyrd-company/lore`. It contains both
 | `LORE_ADMIN_TOKEN` | server, CLI | Bearer token for project bootstrap and revision cleanup |
 | `PUBLIC_BASE_URL` | server, CLI fallback | Browser-visible Lore origin |
 | `LORE_LISTEN_ADDRESS` | server | HTTP bind address; defaults to `:8080` |
-| `LORE_SERVER_URL` | CLI, watcher | Server URL; overrides `PUBLIC_BASE_URL` |
+| `LORE_SERVER_URL` | CLI, watcher | Server URL; overrides `PUBLIC_BASE_URL`; a value without a scheme uses HTTP |
 | `LORE_CONFIG` | CLI, watcher | Explicit client credential configuration path |
 | `LORE_PROJECT` | CLI | Optional project flag/fallback value |
 | `LORE_CLIENT_CONFIG` | Compose watcher | Host credential file mounted read-only into the watcher |
@@ -136,6 +136,9 @@ admin-token: replace-with-admin-token
 workspace. Command-line values resolve in this order: explicit flags,
 environment variables, then the credential file. `LORE_SERVER_URL` is the
 primary server environment variable; `PUBLIC_BASE_URL` remains its fallback.
+Server values honor an explicit `http://` or `https://` scheme. A value without
+a scheme, such as `lore:8080`, resolves to `http://lore:8080` for local and
+Docker-network deployments where TLS terminates outside Lore.
 
 The credential file is selected in this order:
 
@@ -152,9 +155,11 @@ variables remain usable. Malformed or unreadable files fail with their exact
 path; a command missing a required token reports the credential and every
 location it checked.
 
-Run `lore config` to print the resolved server and each value's source. Tokens
-are always printed as `<redacted>`. For a read-only container mount, either use
-`LORE_CONFIG=/etc/lore/config.yml` or rely on that default path:
+Run `lore config` to print the resolved server and each value's source. When
+Lore supplies the HTTP scheme, this output includes `scheme omitted; assumed
+http://`. Tokens are always printed as `<redacted>`. For a read-only container
+mount, either use `LORE_CONFIG=/etc/lore/config.yml` or rely on that default
+path:
 
 ```bash
 docker run --rm \
@@ -173,7 +178,7 @@ container:
 
 ```yaml
 # lore-client.yml
-server: http://lore-server:8080
+server: lore-server:8080
 ingest-token: local-ingest-token
 admin-token: local-admin-token
 ```
@@ -234,6 +239,9 @@ the former manual `lore-server migrate` deployment step.
 ## CLI usage
 
 ```text
+lore --help
+lore -h
+lore help
 lore [--config <credentials.yml>] config
 lore projects create --slug <slug> --name <name>
 lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
@@ -243,6 +251,10 @@ lore briefings <show-css|show-skill|write-css|write-skill|contract>
 lore migrate
 lore version
 ```
+
+Every command and command group accepts `--help` or `-h`. The singular command
+aliases `project`, `annotation`, and `briefing` are equivalent to `projects`,
+`annotations`, and `briefings` respectively.
 
 ## Synchronization manifest
 
