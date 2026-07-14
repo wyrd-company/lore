@@ -328,11 +328,22 @@ GET /api/projects/{project}/documents/{document-uuid}/revisions/{revision-uuid}
 GET /api/projects/{project}/search?q=...
 ```
 
-The browse response includes source instances, type counts, tags, tasks, notes,
-briefings, repository documents grouped by repository and branch, conversations,
-and per-document embedding coverage. Document detail includes current rendered
-content, normalized text, metadata, provenance, tags, revision history, and task
-dependencies and dependents in both directions.
+The browse response includes source instances, type counts, tags, tasks, their
+source-board status order, notes, briefings, repository documents grouped by
+repository and branch, conversations, and per-document embedding coverage. Task
+summaries also include dependency, dependent, and open-annotation counts for the
+read-only board. Document detail includes current rendered content, normalized
+text, metadata, provenance, tags, revision history, and task dependencies and
+dependents in both directions.
+
+The project tasks page renders the ingested kanban-md vocabulary as a read-only
+board. Recognized lifecycle statuses and synonyms share canonical lanes; custom
+statuses retain their source order and use a neutral hue. Status, priority, and
+tag facets share the URL query string across Board and List views. Cards link to
+task pages and expose priority, relationship, and open-annotation context without
+drag-and-drop or mutation controls. Narrow screens default to List while the
+Board view keeps fixed-width, independently scrolling columns inside its own
+horizontal scroller.
 
 Search accepts repeatable or comma-separated filters:
 
