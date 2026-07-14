@@ -46,8 +46,8 @@ Requirements are Go 1.25.9, Node.js 22, Docker, and Task.
 Copy `.env.example` to `.env`, supply a real `AI_GATEWAY_API_KEY`, and replace
 the ingest and admin tokens outside local development. `DATABASE_URL` defaults
 to the Compose PostgreSQL service; `PUBLIC_BASE_URL` is the browser-visible
-origin. `LORE_WATCH_CONFIG` and `LORE_SOURCE_ROOT` configure the optional
-watcher container.
+origin. `LORE_WATCH_CONFIG`, `LORE_CLIENT_CONFIG`, and `LORE_SOURCE_ROOT`
+configure the optional watcher container.
 
 Build and start the application. Compose waits for PostgreSQL to become healthy,
 runs migrations in a one-shot init container using the Lore image, and starts
@@ -85,12 +85,18 @@ task migrate
 task dev
 ```
 
-Create the first project through the admin-protected bootstrap path before its
-first synchronization:
+Create the client credential file, then create the first project through the
+admin-protected bootstrap path before its first synchronization:
 
 ```bash
-export LORE_SERVER_URL=http://localhost:8080
-export LORE_ADMIN_TOKEN=local-admin-token
+mkdir -p ~/.config/lore
+cat > ~/.config/lore/config.yml <<'YAML'
+server: http://localhost:8080
+ingest-token: local-ingest-token
+admin-token: local-admin-token
+YAML
+chmod 600 ~/.config/lore/config.yml
+lore config
 lore projects create --slug lore --name "Lore"
 ```
 
@@ -112,20 +118,80 @@ The published image is `ghcr.io/wyrd-company/lore`. It contains both
 | `PUBLIC_BASE_URL` | server, CLI fallback | Browser-visible Lore origin |
 | `LORE_LISTEN_ADDRESS` | server | HTTP bind address; defaults to `:8080` |
 | `LORE_SERVER_URL` | CLI, watcher | Server URL; overrides `PUBLIC_BASE_URL` |
+| `LORE_CONFIG` | CLI, watcher | Explicit client credential configuration path |
 | `LORE_PROJECT` | CLI | Optional project flag/fallback value |
+| `LORE_CLIENT_CONFIG` | Compose watcher | Host credential file mounted read-only into the watcher |
+
+### CLI credential configuration
+
+The `lore` client reads this YAML shape:
+
+```yaml
+server: https://lore.example.net
+ingest-token: replace-with-ingest-token
+admin-token: replace-with-admin-token
+```
+
+`LORE_PROJECT` is deliberately not a file setting because it varies by
+workspace. Command-line values resolve in this order: explicit flags,
+environment variables, then the credential file. `LORE_SERVER_URL` is the
+primary server environment variable; `PUBLIC_BASE_URL` remains its fallback.
+
+The credential file is selected in this order:
+
+1. `--config <path>`.
+2. `LORE_CONFIG`.
+3. `$XDG_CONFIG_HOME/lore/config.yml`, or `~/.config/lore/config.yml` when
+   `XDG_CONFIG_HOME` is unset.
+4. `/etc/lore/config.yml`.
+
+The two default locations are searched in order, allowing `/etc` to fill keys
+missing from the user file. A `--config` or `LORE_CONFIG` selection searches
+only that path. Missing and partial files are allowed so flags and environment
+variables remain usable. Malformed or unreadable files fail with their exact
+path; a command missing a required token reports the credential and every
+location it checked.
+
+Run `lore config` to print the resolved server and each value's source. Tokens
+are always printed as `<redacted>`. For a read-only container mount, either use
+`LORE_CONFIG=/etc/lore/config.yml` or rely on that default path:
+
+```bash
+docker run --rm \
+  --entrypoint /usr/local/bin/lore \
+  -v "$HOME/.config/lore/config.yml:/etc/lore/config.yml:ro" \
+  ghcr.io/wyrd-company/lore:latest config
+```
 
 ### Compose deployment with watchers
 
-The image also contains the `lore` watcher executable. Create
-`lore-watch.yml` with container paths beneath `/sources`, set
-`LORE_SOURCE_ROOT` to their common host directory, then start the optional
-Compose profile:
+The image also contains the `lore` watcher executable. Keep `lore-watch.yml`
+for source mappings and save a separate credential file as
+`~/.config/lore/watcher.yml`. Container paths in the watch file live beneath
+`/sources`; the credential server URL must be reachable from the watcher
+container:
+
+```yaml
+# lore-client.yml
+server: http://lore-server:8080
+ingest-token: local-ingest-token
+admin-token: local-admin-token
+```
+
+Set `LORE_SOURCE_ROOT` to the sources' common host directory, then start the
+optional Compose profile:
 
 ```bash
 docker compose up -d --build --wait
-LORE_WATCH_CONFIG=./lore-watch.yml LORE_SOURCE_ROOT=/workspaces \
+LORE_WATCH_CONFIG=./lore-watch.yml \
+LORE_CLIENT_CONFIG=$HOME/.config/lore/watcher.yml \
+LORE_SOURCE_ROOT=/workspaces \
   docker compose --profile watch up -d --build lore-watcher
 ```
+
+Compose mounts both configuration files and the source tree read-only. The
+watcher's `--config /config/lore-watch.yml` remains the source-layout option;
+its credentials come from `LORE_CONFIG=/config/lore-client.yml`.
 
 Run additional watcher services from the same image when sources require
 different mounts or credentials. Mount source directories read-only and give
@@ -168,9 +234,10 @@ the former manual `lore-server migrate` deployment step.
 ## CLI usage
 
 ```text
+lore [--config <credentials.yml>] config
 lore projects create --slug <slug> --name <name>
 lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
-lore watch --config <path>
+lore [--config <credentials.yml>] watch --config <watch.yml>
 lore annotations export --project <project> [--after <cursor>] [--output <path>]
 lore briefings <show-css|show-skill|write-css|write-skill|contract>
 lore migrate
@@ -326,9 +393,6 @@ partial by default, so they cannot delete sibling documents; add `--complete`
 when the path is the authoritative projection of that source.
 
 ```bash
-export LORE_SERVER_URL=http://localhost:8080
-export LORE_INGEST_TOKEN=local-ingest-token
-
 lore upload tasks --project refinery --source-instance kanban --complete /workspaces/kanban
 lore upload notes --project refinery --source-instance mnemonic --complete /memory/.mnemonic/notes
 lore upload briefing --project refinery --source-instance weekly --title "Weekly briefing" briefing.html
@@ -407,6 +471,9 @@ Run it with:
 
 ```bash
 lore watch --config lore-watch.yml
+# With an explicit credential file, place it before the command so the watch
+# file keeps its established --config spelling:
+lore --config ~/.config/lore/config.yml watch --config lore-watch.yml
 ```
 
 ## Briefing authoring contract

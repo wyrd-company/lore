@@ -174,10 +174,15 @@ func TestSourceUploadsThroughCLIAndServerWithPostgres(t *testing.T) {
 	if err := os.WriteFile(watchConfig, []byte(configuration), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	credentialConfig := filepath.Join(t.TempDir(), "credentials.yml")
+	credentials := fmt.Sprintf("server: %s\ningest-token: ingest-secret\n", server.URL)
+	if err := os.WriteFile(credentialConfig, []byte(credentials), 0o444); err != nil {
+		t.Fatal(err)
+	}
 	watchContext, stopWatch := context.WithCancel(ctx)
 	watchResult := make(chan error, 1)
 	go func() {
-		watchResult <- runner.Run(watchContext, []string{"watch", "--config", watchConfig, "--server", server.URL, "--token", "ingest-secret"})
+		watchResult <- runner.Run(watchContext, []string{"--config", credentialConfig, "watch", "--config", watchConfig})
 	}()
 	waitForCount(t, ctx, pool, `SELECT count(*) FROM revisions r JOIN documents d ON d.id = r.document_id JOIN source_instances s ON s.id = d.source_instance_id WHERE s.external_key = 'watched-notes'`, 1)
 	if err := os.WriteFile(notePath, append(note, []byte("\nWatcher update.\n")...), 0o600); err != nil {

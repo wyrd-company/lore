@@ -61,10 +61,10 @@ services:
     entrypoint: ["/usr/local/bin/lore"]
     command: ["watch", "--config", "/config/lore-watch.yml"]
     environment:
-      LORE_SERVER_URL: http://lore-server:8080
-      LORE_INGEST_TOKEN: ${LORE_INGEST_TOKEN:-local-ingest-token}
+      LORE_CONFIG: /config/lore-client.yml
     volumes:
       - ${LORE_WATCH_CONFIG:-./lore-watch.yml}:/config/lore-watch.yml:ro
+      - ${LORE_CLIENT_CONFIG:-./lore-client.yml}:/config/lore-client.yml:ro
       - ${LORE_SOURCE_ROOT:-.}:/sources:ro
     healthcheck:
       disable: true

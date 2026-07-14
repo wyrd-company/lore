@@ -30,6 +30,12 @@ func New(out, errOut io.Writer) *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, args []string) error {
+	var selection configSelection
+	var err error
+	args, selection, err = extractGlobalConfig(args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		r.usage()
 		return nil
@@ -45,13 +51,15 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		}
 		return database.Migrate(ctx, cfg.DatabaseURL)
 	case "upload", "sync":
-		return r.upload(ctx, args[1:])
+		return r.upload(ctx, args[1:], selection)
 	case "watch":
-		return r.watch(ctx, args[1:])
+		return r.watch(ctx, args[1:], selection)
 	case "annotations":
-		return r.annotations(ctx, args[1:])
+		return r.annotations(ctx, args[1:], selection)
 	case "projects":
-		return r.projects(ctx, args[1:])
+		return r.projects(ctx, args[1:], selection)
+	case "config":
+		return r.showConfig(args[1:], selection)
 	case "briefings":
 		return r.briefings(args[1:])
 	default:
@@ -59,18 +67,30 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 	}
 }
 
-func (r *Runner) projects(ctx context.Context, args []string) error {
+func (r *Runner) projects(ctx context.Context, args []string, inherited configSelection) error {
 	if len(args) == 0 || args[0] != "create" {
 		return fmt.Errorf("usage: lore projects create --slug <slug> --name <name>")
+	}
+	selection, err := selectionFromArgs(args[1:], inherited)
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveClientConfig(selection)
+	if err != nil {
+		return err
 	}
 	flags := flag.NewFlagSet("projects create", flag.ContinueOnError)
 	flags.SetOutput(r.ErrOut)
 	slug := flags.String("slug", "", "project slug")
 	name := flags.String("name", "", "project display name")
-	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
-	token := flags.String("token", os.Getenv("LORE_ADMIN_TOKEN"), "Lore admin token")
+	server := flags.String("server", resolved.ServerURL.Value, "Lore server base URL")
+	token := flags.String("token", resolved.AdminToken.Value, "Lore admin token")
+	_ = flags.String("config", selection.Path, "Lore client credential configuration YAML")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
+	}
+	if *token == "" {
+		return resolved.missingCredential("Lore admin token", "--token", "LORE_ADMIN_TOKEN", "admin-token")
 	}
 	api, err := client.New(*server, *token)
 	if err != nil {
@@ -84,17 +104,26 @@ func (r *Runner) projects(ctx context.Context, args []string) error {
 	return err
 }
 
-func (r *Runner) upload(ctx context.Context, args []string) error {
+func (r *Runner) upload(ctx context.Context, args []string, inherited configSelection) error {
 	if len(args) == 0 {
 		return fmt.Errorf("upload source type is required (tasks, notes, briefing, repository, or conversations)")
 	}
 	adapter := args[0]
+	selection, err := selectionFromArgs(args[1:], inherited)
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveClientConfig(selection)
+	if err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("upload "+adapter, flag.ContinueOnError)
 	flags.SetOutput(r.ErrOut)
 	project := flags.String("project", os.Getenv("LORE_PROJECT"), "Lore project slug")
 	sourceInstance := flags.String("source-instance", "", "stable source instance name")
-	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
-	token := flags.String("token", os.Getenv("LORE_INGEST_TOKEN"), "Lore ingest token")
+	server := flags.String("server", resolved.ServerURL.Value, "Lore server base URL")
+	token := flags.String("token", resolved.IngestToken.Value, "Lore ingest token")
+	_ = flags.String("config", selection.Path, "Lore client credential configuration YAML")
 	complete := flags.Bool("complete", false, "treat the scan as the complete source projection")
 	title := flags.String("title", "", "briefing title override")
 	repository := flags.String("repository", "", "repository identity override")
@@ -111,6 +140,9 @@ func (r *Runner) upload(ctx context.Context, args []string) error {
 	}
 	if adapter != "conversations" && *project == "" {
 		return fmt.Errorf("--project or LORE_PROJECT is required")
+	}
+	if *token == "" {
+		return resolved.missingCredential("Lore ingest token", "--token", "LORE_INGEST_TOKEN", "ingest-token")
 	}
 	boundary := synchronization.BoundaryPartial
 	if *complete {
@@ -189,14 +221,23 @@ func (r *Runner) briefings(args []string) error {
 	}
 }
 
-func (r *Runner) annotations(ctx context.Context, args []string) error {
+func (r *Runner) annotations(ctx context.Context, args []string, inherited configSelection) error {
 	if len(args) == 0 || args[0] != "export" {
 		return fmt.Errorf("usage: lore annotations export --project <project> [--after <cursor>] [--output <path>]")
+	}
+	selection, err := selectionFromArgs(args[1:], inherited)
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveClientConfig(selection)
+	if err != nil {
+		return err
 	}
 	flags := flag.NewFlagSet("annotations export", flag.ContinueOnError)
 	flags.SetOutput(r.ErrOut)
 	project := flags.String("project", os.Getenv("LORE_PROJECT"), "exactly one Lore project slug")
-	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
+	server := flags.String("server", resolved.ServerURL.Value, "Lore server base URL")
+	_ = flags.String("config", selection.Path, "Lore client credential configuration YAML")
 	after := flags.Int64("after", 0, "incremental update cursor; zero exports a complete snapshot")
 	output := flags.String("output", "-", "output path, or - for standard output")
 	format := flags.String("format", "json", "export format")
@@ -238,14 +279,21 @@ func (r *Runner) annotations(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (r *Runner) watch(ctx context.Context, args []string) error {
+func (r *Runner) watch(ctx context.Context, args []string, selection configSelection) error {
+	resolved, err := resolveClientConfig(selection)
+	if err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
 	flags.SetOutput(r.ErrOut)
 	configPath := flags.String("config", "lore-watch.yml", "watch configuration YAML")
-	server := flags.String("server", serverFromEnvironment(), "Lore server base URL")
-	token := flags.String("token", os.Getenv("LORE_INGEST_TOKEN"), "Lore ingest token")
+	server := flags.String("server", resolved.ServerURL.Value, "Lore server base URL")
+	token := flags.String("token", resolved.IngestToken.Value, "Lore ingest token")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *token == "" {
+		return resolved.missingCredential("Lore ingest token", "--token", "LORE_INGEST_TOKEN", "ingest-token")
 	}
 	watchConfig, err := watcher.LoadConfig(*configPath)
 	if err != nil {
@@ -261,21 +309,12 @@ func (r *Runner) watch(ctx context.Context, args []string) error {
 func (r *Runner) usage() {
 	_, _ = io.WriteString(r.Out, strings.TrimSpace(`Lore command-line client
 usage:
+  lore [--config <credentials.yml>] config
   lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
-  lore watch --config <path>
+  lore [--config <credentials.yml>] watch --config <watch.yml>
   lore projects create --slug <slug> --name <name>
   lore annotations export --project <project> [--after <cursor>]
   lore briefings <show-css|show-skill|write-css|write-skill|contract>
   lore migrate
   lore version`)+"\n")
-}
-
-func serverFromEnvironment() string {
-	if value := os.Getenv("LORE_SERVER_URL"); value != "" {
-		return value
-	}
-	if value := os.Getenv("PUBLIC_BASE_URL"); value != "" {
-		return value
-	}
-	return "http://localhost:8080"
 }
