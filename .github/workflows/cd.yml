@@ -7,6 +7,11 @@ on:
         description: Existing release tag whose image should be published
         required: true
         type: string
+      release:
+        description: Also publish CLI release assets and the Homebrew formula
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - 'republish-image/*'
@@ -62,7 +67,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build-cli:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release
     needs: version
     strategy:
       fail-fast: false
@@ -75,6 +80,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -104,6 +111,7 @@ jobs:
           path: artifacts/*
 
   release:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release
     needs: [version, build-cli]
     runs-on: ubuntu-latest
     steps:
@@ -211,7 +219,7 @@ jobs:
         run: docker buildx imagetools inspect ghcr.io/wyrd-company/lore:${{ needs.version.outputs.version }}
 
   homebrew:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release
     needs: [version, build-cli, release]
     runs-on: ubuntu-latest
     steps:
