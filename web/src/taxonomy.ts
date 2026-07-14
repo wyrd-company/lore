@@ -1,5 +1,7 @@
 import type { TermSummary } from "./types";
 
+const svgNamespace = "http://www.w3.org/2000/svg";
+
 export interface TaxonomyMatch {
   start: number;
   end: number;
@@ -43,13 +45,15 @@ export function linkTaxonomyText(root: HTMLElement, project: string, tags: strin
     let offset = 0;
     for (const match of matches) {
       fragment.append(textNode.data.slice(offset, match.start));
-      const link = root.ownerDocument.createElement("a");
-      link.className = `taxonomy-link taxonomy-link--${match.kind}`;
-      link.dataset.taxonomy = match.name;
+      const link = textNode.parentElement?.namespaceURI === svgNamespace
+        ? root.ownerDocument.createElementNS(svgNamespace, "a")
+        : root.ownerDocument.createElement("a");
+      link.setAttribute("class", `taxonomy-link taxonomy-link--${match.kind}`);
+      link.setAttribute("data-taxonomy", match.name);
       link.textContent = textNode.data.slice(match.start, match.end);
-      link.href = match.kind === "term"
+      link.setAttribute("href", match.kind === "term"
         ? `/${encodeURIComponent(project)}/terms/${encodeURIComponent(match.name)}`
-        : `/${encodeURIComponent(project)}/search?q=${encodeURIComponent(match.name)}&tag=${encodeURIComponent(match.name)}`;
+        : `/${encodeURIComponent(project)}/search?q=${encodeURIComponent(match.name)}&tag=${encodeURIComponent(match.name)}`);
       fragment.append(link);
       offset = match.end;
     }

@@ -99,6 +99,12 @@ test("validates the complete archive journey with real services", async ({ page 
   await openRow(page, "Architecture");
   await expect(page.getByRole("complementary", { name: "Other briefings" }).getByRole("link", { name: "Architecture" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".document-content #boundary")).toContainText("source files authoritative");
+  const svgTaxonomyLink = page.locator('.document-content svg .taxonomy-link[data-taxonomy="architecture"]');
+  await expect(svgTaxonomyLink).toBeVisible();
+  await expect(svgTaxonomyLink).toHaveText("architecture");
+  await expect(svgTaxonomyLink).toHaveAttribute("href", "/e2e-primary/search?q=architecture&tag=architecture");
+  await expect(page.locator('.document-content svg text')).toHaveText("architecture foundation");
+  await expect(svgTaxonomyLink).toHaveJSProperty("namespaceURI", "http://www.w3.org/2000/svg");
 
   await page.getByRole("link", { name: /Repository 3/ }).click();
   await expect(page.getByRole("heading", { name: "git@github.com:wyrd-company/lore-e2e-fixture.git" })).toBeVisible();
