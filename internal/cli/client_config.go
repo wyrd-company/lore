@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wyrd-company/lore/internal/client"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,8 +22,9 @@ type configSelection struct {
 }
 
 type resolvedValue struct {
-	Value  string
-	Source string
+	Value      string
+	Source     string
+	Assumption string
 }
 
 type configLookup struct {
@@ -75,7 +77,26 @@ func resolveClientConfig(selection configSelection) (clientConfig, error) {
 	if config.ServerURL.Value == "" {
 		config.ServerURL = resolvedValue{Value: defaultServerURL, Source: "default"}
 	}
+	normalizedServer, err := normalizeServerValue(config.ServerURL)
+	if err != nil {
+		return clientConfig{}, err
+	}
+	config.ServerURL = normalizedServer
 	return config, nil
+}
+
+func normalizeServerValue(value resolvedValue) (resolvedValue, error) {
+	normalized, assumedHTTP, err := client.NormalizeServerURL(value.Value)
+	if err != nil {
+		return resolvedValue{}, err
+	}
+	value.Value = normalized
+	if assumedHTTP {
+		value.Assumption = "scheme omitted; assumed http://"
+	} else {
+		value.Assumption = ""
+	}
+	return value, nil
 }
 
 func decodeClientConfig(contents []byte) (clientConfigFile, error) {
@@ -217,16 +238,24 @@ func (r *Runner) showConfig(args []string, inherited configSelection) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	serverOverridden := false
 	flags.Visit(func(flagValue *flag.Flag) {
 		switch flagValue.Name {
 		case "server":
 			resolved.ServerURL = resolvedValue{Value: *server, Source: "flag --server"}
+			serverOverridden = true
 		case "ingest-token":
 			resolved.IngestToken = resolvedValue{Value: *ingestToken, Source: "flag --ingest-token"}
 		case "admin-token":
 			resolved.AdminToken = resolvedValue{Value: *adminToken, Source: "flag --admin-token"}
 		}
 	})
+	if serverOverridden {
+		resolved.ServerURL, err = normalizeServerValue(resolved.ServerURL)
+		if err != nil {
+			return err
+		}
+	}
 	if len(resolved.Lookups) == 0 {
 		_, _ = fmt.Fprintln(r.Out, "config-files: none")
 	} else {
@@ -239,7 +268,11 @@ func (r *Runner) showConfig(args []string, inherited configSelection) error {
 			_, _ = fmt.Fprintf(r.Out, "  - %s (%s)\n", lookup.Path, status)
 		}
 	}
-	_, _ = fmt.Fprintf(r.Out, "server: %s (%s)\n", valueOrUnset(resolved.ServerURL.Value), sourceOrUnset(resolved.ServerURL.Source))
+	serverSource := sourceOrUnset(resolved.ServerURL.Source)
+	if resolved.ServerURL.Assumption != "" {
+		serverSource += "; " + resolved.ServerURL.Assumption
+	}
+	_, _ = fmt.Fprintf(r.Out, "server: %s (%s)\n", valueOrUnset(resolved.ServerURL.Value), serverSource)
 	_, _ = fmt.Fprintf(r.Out, "ingest-token: %s (%s)\n", redacted(resolved.IngestToken.Value), sourceOrUnset(resolved.IngestToken.Source))
 	_, err = fmt.Fprintf(r.Out, "admin-token: %s (%s)\n", redacted(resolved.AdminToken.Value), sourceOrUnset(resolved.AdminToken.Source))
 	return err

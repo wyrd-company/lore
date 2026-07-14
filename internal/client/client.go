@@ -74,15 +74,27 @@ func NewViewer(baseURL string) (*Client, error) {
 }
 
 func newClient(baseURL, token string, requireToken bool) (*Client, error) {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("invalid Lore server URL %q", baseURL)
+	baseURL, _, err := NormalizeServerURL(baseURL)
+	if err != nil {
+		return nil, err
 	}
 	if requireToken && token == "" {
 		return nil, fmt.Errorf("Lore ingest token is required")
 	}
 	return &Client{baseURL: baseURL, token: token, httpClient: &http.Client{Timeout: 60 * time.Second}}, nil
+}
+
+func NormalizeServerURL(baseURL string) (normalized string, assumedHTTP bool, err error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if !strings.Contains(baseURL, "://") {
+		baseURL = "http://" + baseURL
+		assumedHTTP = true
+	}
+	parsed, parseErr := url.Parse(baseURL)
+	if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", false, fmt.Errorf("invalid Lore server URL %q", baseURL)
+	}
+	return strings.TrimRight(baseURL, "/"), assumedHTTP, nil
 }
 
 func (c *Client) ExportAnnotations(ctx context.Context, project string, after int64) (annotations.Export, error) {

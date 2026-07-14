@@ -62,6 +62,19 @@ func TestClientConfigDefaultSearchAndPartialFiles(t *testing.T) {
 	}
 }
 
+func TestClientConfigAssumesHTTPForSchemelessEnvironmentURL(t *testing.T) {
+	clearClientEnvironment(t)
+	t.Setenv("LORE_SERVER_URL", "lore:8080")
+	resolved, err := resolveClientConfig(configSelection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertResolvedValue(t, resolved.ServerURL, "http://lore:8080", "environment LORE_SERVER_URL")
+	if resolved.ServerURL.Assumption != "scheme omitted; assumed http://" {
+		t.Fatalf("server URL assumption = %q", resolved.ServerURL.Assumption)
+	}
+}
+
 func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 	clearClientEnvironment(t)
 	t.Setenv("LORE_PROJECT", "config-only")
@@ -74,16 +87,25 @@ func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 	configServer := httptest.NewServer(httpapi.New(pool, "config-ingest", "config-admin"))
 	t.Cleanup(configServer.Close)
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	writeClientConfig(t, configPath, fmt.Sprintf("server: %s\ningest-token: config-ingest\nadmin-token: config-admin\n", configServer.URL))
+	configAddress := strings.TrimPrefix(configServer.URL, "http://")
+	writeClientConfig(t, configPath, fmt.Sprintf("server: %s\ningest-token: config-ingest\nadmin-token: config-admin\n", configAddress))
 	if err := os.Chmod(configPath, 0o444); err != nil {
 		t.Fatal(err)
 	}
 	runClientCommand(t, runner, ctx, "project", "create", "--config", configPath, "--slug", "config-only", "--name", "Config only")
 	runClientCommand(t, runner, ctx, "upload", "notes", "--config", configPath, "--source-instance", "config-notes", fixtures)
+	output.Reset()
+	if err := runner.Run(ctx, []string{"config", "--config", configPath}); err != nil {
+		t.Fatal(err)
+	}
+	expectedServer := "server: " + configServer.URL + " (config " + configPath + "; scheme omitted; assumed http://)"
+	if !strings.Contains(output.String(), expectedServer) {
+		t.Fatalf("config output missing %q: %s", expectedServer, output.String())
+	}
 
 	environmentServer := httptest.NewServer(httpapi.New(pool, "environment-ingest", "environment-admin"))
 	t.Cleanup(environmentServer.Close)
-	t.Setenv("LORE_SERVER_URL", environmentServer.URL)
+	t.Setenv("LORE_SERVER_URL", strings.TrimPrefix(environmentServer.URL, "http://"))
 	t.Setenv("LORE_INGEST_TOKEN", "environment-ingest")
 	t.Setenv("LORE_ADMIN_TOKEN", "environment-admin")
 	t.Setenv("LORE_PROJECT", "environment")
@@ -98,8 +120,9 @@ func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 	t.Setenv("LORE_INGEST_TOKEN", "wrong-environment-ingest")
 	t.Setenv("LORE_ADMIN_TOKEN", "wrong-environment-admin")
 	missingConfig := filepath.Join(t.TempDir(), "missing.yml")
-	runClientCommand(t, runner, ctx, "projects", "create", "--config", missingConfig, "--server", flagServer.URL, "--token", "flag-admin", "--slug", "flags", "--name", "Flags")
-	runClientCommand(t, runner, ctx, "upload", "notes", "--config", missingConfig, "--server", flagServer.URL, "--token", "flag-ingest", "--project", "flags", "--source-instance", "flag-notes", fixtures)
+	flagAddress := strings.TrimPrefix(flagServer.URL, "http://")
+	runClientCommand(t, runner, ctx, "projects", "create", "--config", missingConfig, "--server", flagAddress, "--token", "flag-admin", "--slug", "flags", "--name", "Flags")
+	runClientCommand(t, runner, ctx, "upload", "notes", "--config", missingConfig, "--server", flagAddress, "--token", "flag-ingest", "--project", "flags", "--source-instance", "flag-notes", fixtures)
 
 	var projects, documents int
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM projects), (SELECT count(*) FROM documents WHERE deleted_at IS NULL)`).Scan(&projects, &documents); err != nil {
@@ -112,7 +135,7 @@ func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 	output.Reset()
 	showIngest := "show-ingest-secret"
 	showAdmin := "show-admin-secret"
-	if err := runner.Run(ctx, []string{"config", "--config", configPath, "--server", flagServer.URL, "--ingest-token", showIngest, "--admin-token", showAdmin}); err != nil {
+	if err := runner.Run(ctx, []string{"config", "--config", configPath, "--server", flagAddress, "--ingest-token", showIngest, "--admin-token", showAdmin}); err != nil {
 		t.Fatal(err)
 	}
 	shown := output.String()
@@ -121,7 +144,7 @@ func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 			t.Fatalf("config output exposed token %q: %s", secret, shown)
 		}
 	}
-	for _, expected := range []string{configPath + " (loaded)", "ingest-token: <redacted> (flag --ingest-token)", "admin-token: <redacted> (flag --admin-token)", "server: " + flagServer.URL + " (flag --server)"} {
+	for _, expected := range []string{configPath + " (loaded)", "ingest-token: <redacted> (flag --ingest-token)", "admin-token: <redacted> (flag --admin-token)", "server: " + flagServer.URL + " (flag --server; scheme omitted; assumed http://)"} {
 		if !strings.Contains(shown, expected) {
 			t.Fatalf("config output missing %q: %s", expected, shown)
 		}
