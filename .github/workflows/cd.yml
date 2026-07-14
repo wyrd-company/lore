@@ -1,6 +1,12 @@
 name: cd
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag whose image should be published
+        required: true
+        type: string
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
@@ -20,11 +26,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
       - id: version
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           version="$(cat VERSION)"
           if [[ "$tag" == v* ]]; then
             echo "Tags must not start with v: $tag" >&2
@@ -38,7 +47,7 @@ jobs:
             echo "Tag '$tag' does not match VERSION '$version'" >&2
             exit 1
           fi
-          if ! git branch -r --contains "$GITHUB_SHA" | grep -q 'origin/main'; then
+          if ! git branch -r --contains HEAD | grep -q 'origin/main'; then
             echo "Tag $tag does not point at a commit on main" >&2
             exit 1
           fi
@@ -46,6 +55,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build-cli:
+    if: github.event_name != 'workflow_dispatch'
     needs: version
     strategy:
       fail-fast: false
@@ -101,12 +111,19 @@ jobs:
           files: artifacts/*
           fail_on_unmatched_files: true
 
-  publish-image:
+  build-image:
     needs: version
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, platform: linux/amd64, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, platform: linux/arm64, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+        with:
+          ref: ${{ needs.version.outputs.tag }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -121,16 +138,72 @@ jobs:
             type=raw,value=${{ needs.version.outputs.version }}
             type=raw,value=latest,enable=${{ !contains(needs.version.outputs.version, '-') }}
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           target: server
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: ${{ matrix.platform }}
           build-args: VERSION=${{ needs.version.outputs.version }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/wyrd-company/lore,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=lore-image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=lore-image-${{ matrix.arch }}
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-image:
+    needs: [version, build-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: image-digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/wyrd-company/lore
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=latest,enable=${{ !contains(needs.version.outputs.version, '-') }}
+      - name: Create multi-architecture manifest
+        env:
+          IMAGE: ghcr.io/wyrd-company/lore
+        run: |
+          mapfile -t tags < <(jq -r '.tags[]' <<< "${DOCKER_METADATA_OUTPUT_JSON}")
+          tag_args=()
+          for tag in "${tags[@]}"; do
+            tag_args+=(--tag "$tag")
+          done
+
+          sources=()
+          for digest_file in /tmp/digests/*; do
+            sources+=("${IMAGE}@sha256:$(basename "$digest_file")")
+          done
+
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+      - name: Inspect multi-architecture image
+        run: docker buildx imagetools inspect ghcr.io/wyrd-company/lore:${{ needs.version.outputs.version }}
 
   homebrew:
+    if: github.event_name != 'workflow_dispatch'
     needs: [version, build-cli, release]
     runs-on: ubuntu-latest
     steps:
