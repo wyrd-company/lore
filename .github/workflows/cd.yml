@@ -8,6 +8,8 @@ on:
         required: true
         type: string
   push:
+    branches:
+      - 'republish-image/*'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
 
@@ -30,11 +32,14 @@ jobs:
       - id: version
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          tag="${RELEASE_TAG}"
-          version="$(cat VERSION)"
+          if [[ "$GITHUB_REF" == refs/heads/republish-image/* ]]; then
+            tag="${GITHUB_REF#refs/heads/republish-image/}"
+          else
+            tag="${DISPATCH_TAG:-$GITHUB_REF_NAME}"
+          fi
           if [[ "$tag" == v* ]]; then
             echo "Tags must not start with v: $tag" >&2
             exit 1
@@ -43,6 +48,8 @@ jobs:
             echo "Tag must be SemVer without a v prefix: $tag" >&2
             exit 1
           fi
+          git checkout --detach "refs/tags/$tag"
+          version="$(cat VERSION)"
           if [[ "$tag" != "$version" ]]; then
             echo "Tag '$tag' does not match VERSION '$version'" >&2
             exit 1
@@ -55,7 +62,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   build-cli:
-    if: github.event_name != 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/')
     needs: version
     strategy:
       fail-fast: false
@@ -203,7 +210,7 @@ jobs:
         run: docker buildx imagetools inspect ghcr.io/wyrd-company/lore:${{ needs.version.outputs.version }}
 
   homebrew:
-    if: github.event_name != 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [version, build-cli, release]
     runs-on: ubuntu-latest
     steps:
