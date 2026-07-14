@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 
@@ -9,8 +10,17 @@ import (
 )
 
 func main() {
-	if err := cli.New(os.Stdout, os.Stderr).Run(context.Background(), os.Args[1:]); err != nil {
-		slog.Error("lore failed", "error", err)
-		os.Exit(1)
+	if code := run(os.Args[1:], os.Stdout, os.Stderr); code != 0 {
+		os.Exit(code)
 	}
+}
+
+func run(args []string, out, errOut io.Writer) int {
+	if err := cli.New(out, errOut).Run(context.Background(), args); err != nil {
+		if !cli.IsReportedError(err) {
+			slog.New(slog.NewTextHandler(errOut, nil)).Error("lore failed", "error", err)
+		}
+		return 1
+	}
+	return 0
 }

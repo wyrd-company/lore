@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,6 +26,23 @@ type Runner struct {
 	ErrOut io.Writer
 }
 
+type reportedError struct {
+	err error
+}
+
+func (e reportedError) Error() string {
+	return e.err.Error()
+}
+
+func (e reportedError) Unwrap() error {
+	return e.err
+}
+
+func IsReportedError(err error) bool {
+	var reported reportedError
+	return errors.As(err, &reported)
+}
+
 func New(out, errOut io.Writer) *Runner {
 	return &Runner{Out: out, ErrOut: errOut}
 }
@@ -37,14 +55,26 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		r.usage()
+		r.usage(r.Out)
+		return nil
+	}
+	if isHelp(args[0]) || args[0] == "help" {
+		r.usage(r.Out)
 		return nil
 	}
 	switch args[0] {
 	case "version", "--version", "-version":
+		if helpRequested(args[1:]) {
+			r.commandUsage(r.Out, "version")
+			return nil
+		}
 		_, err := fmt.Fprintf(r.Out, "lore %s\n", version.Value)
 		return err
 	case "migrate":
+		if helpRequested(args[1:]) {
+			r.commandUsage(r.Out, "migrate")
+			return nil
+		}
 		cfg := config.FromEnvironment()
 		if err := cfg.ValidateDatabase(); err != nil {
 			return err
@@ -54,22 +84,37 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		return r.upload(ctx, args[1:], selection)
 	case "watch":
 		return r.watch(ctx, args[1:], selection)
-	case "annotations":
+	case "annotations", "annotation":
 		return r.annotations(ctx, args[1:], selection)
-	case "projects":
+	case "projects", "project":
 		return r.projects(ctx, args[1:], selection)
 	case "config":
+		if helpRequested(args[1:]) {
+			r.commandUsage(r.Out, "config")
+			return nil
+		}
 		return r.showConfig(args[1:], selection)
-	case "briefings":
+	case "briefings", "briefing":
 		return r.briefings(args[1:])
 	default:
-		return fmt.Errorf("unknown command %q", args[0])
+		return r.usageError(fmt.Errorf("unknown command %q", args[0]), "")
 	}
 }
 
 func (r *Runner) projects(ctx context.Context, args []string, inherited configSelection) error {
-	if len(args) == 0 || args[0] != "create" {
-		return fmt.Errorf("usage: lore projects create --slug <slug> --name <name>")
+	if len(args) == 0 {
+		return r.usageError(fmt.Errorf("projects command is required"), "projects")
+	}
+	if isHelp(args[0]) {
+		r.commandUsage(r.Out, "projects")
+		return nil
+	}
+	if args[0] != "create" {
+		return r.usageError(fmt.Errorf("unknown projects command %q", args[0]), "projects")
+	}
+	if helpRequested(args[1:]) {
+		r.commandUsage(r.Out, "projects create")
+		return nil
 	}
 	selection, err := selectionFromArgs(args[1:], inherited)
 	if err != nil {
@@ -106,9 +151,20 @@ func (r *Runner) projects(ctx context.Context, args []string, inherited configSe
 
 func (r *Runner) upload(ctx context.Context, args []string, inherited configSelection) error {
 	if len(args) == 0 {
-		return fmt.Errorf("upload source type is required (tasks, notes, briefing, repository, or conversations)")
+		return r.usageError(fmt.Errorf("upload source type is required"), "upload")
+	}
+	if isHelp(args[0]) {
+		r.commandUsage(r.Out, "upload")
+		return nil
 	}
 	adapter := args[0]
+	if !validUploadAdapter(adapter) {
+		return r.usageError(fmt.Errorf("unknown upload source type %q", adapter), "upload")
+	}
+	if helpRequested(args[1:]) {
+		r.commandUsage(r.Out, "upload "+adapter)
+		return nil
+	}
 	selection, err := selectionFromArgs(args[1:], inherited)
 	if err != nil {
 		return err
@@ -187,7 +243,15 @@ func (r *Runner) upload(ctx context.Context, args []string, inherited configSele
 
 func (r *Runner) briefings(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("briefings command is required")
+		return r.usageError(fmt.Errorf("briefings command is required"), "briefings")
+	}
+	if isHelp(args[0]) {
+		r.commandUsage(r.Out, "briefings")
+		return nil
+	}
+	if helpRequested(args[1:]) {
+		r.commandUsage(r.Out, "briefings "+args[0])
+		return nil
 	}
 	switch args[0] {
 	case "show-css":
@@ -217,13 +281,24 @@ func (r *Runner) briefings(args []string) error {
 		}
 		return briefings.WriteContract(r.Out)
 	default:
-		return fmt.Errorf("unknown briefings command %q", args[0])
+		return r.usageError(fmt.Errorf("unknown briefings command %q", args[0]), "briefings")
 	}
 }
 
 func (r *Runner) annotations(ctx context.Context, args []string, inherited configSelection) error {
-	if len(args) == 0 || args[0] != "export" {
-		return fmt.Errorf("usage: lore annotations export --project <project> [--after <cursor>] [--output <path>]")
+	if len(args) == 0 {
+		return r.usageError(fmt.Errorf("annotations command is required"), "annotations")
+	}
+	if isHelp(args[0]) {
+		r.commandUsage(r.Out, "annotations")
+		return nil
+	}
+	if args[0] != "export" {
+		return r.usageError(fmt.Errorf("unknown annotations command %q", args[0]), "annotations")
+	}
+	if helpRequested(args[1:]) {
+		r.commandUsage(r.Out, "annotations export")
+		return nil
 	}
 	selection, err := selectionFromArgs(args[1:], inherited)
 	if err != nil {
@@ -280,6 +355,10 @@ func (r *Runner) annotations(ctx context.Context, args []string, inherited confi
 }
 
 func (r *Runner) watch(ctx context.Context, args []string, selection configSelection) error {
+	if helpRequested(args) {
+		r.commandUsage(r.Out, "watch")
+		return nil
+	}
 	resolved, err := resolveClientConfig(selection)
 	if err != nil {
 		return err
@@ -306,15 +385,85 @@ func (r *Runner) watch(ctx context.Context, args []string, selection configSelec
 	return watcher.New(watchConfig, api, r.Out).Run(ctx)
 }
 
-func (r *Runner) usage() {
-	_, _ = io.WriteString(r.Out, strings.TrimSpace(`Lore command-line client
-usage:
-  lore [--config <credentials.yml>] config
-  lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
-  lore [--config <credentials.yml>] watch --config <watch.yml>
-  lore projects create --slug <slug> --name <name>
-  lore annotations export --project <project> [--after <cursor>]
-  lore briefings <show-css|show-skill|write-css|write-skill|contract>
-  lore migrate
-  lore version`)+"\n")
+func (r *Runner) usage(writer io.Writer) {
+	r.commandUsage(writer, "")
+}
+
+func (r *Runner) commandUsage(writer io.Writer, command string) {
+	usage := map[string]string{
+		"": `Lore command-line client
+
+Usage:
+  lore [--config <credentials.yml>] <command> [flags]
+
+Commands:
+  config       Show resolved client configuration
+  projects     Create projects (alias: project)
+  upload       Synchronize local source material
+  watch        Watch and synchronize configured sources
+  annotations  Export annotations (alias: annotation)
+  briefings    Read or write briefing resources (alias: briefing)
+  migrate      Apply database migrations
+  version      Print the Lore version
+  help         Show this usage`,
+		"config": `Usage:
+  lore [--config <credentials.yml>] config [--server <url>] [--ingest-token <token>] [--admin-token <token>]`,
+		"projects": `Usage:
+  lore projects create --slug <slug> --name <name> [--server <url>] [--token <token>]`,
+		"projects create": `Usage:
+  lore projects create --slug <slug> --name <name> [--server <url>] [--token <token>]`,
+		"upload": `Usage:
+  lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>`,
+		"annotations": `Usage:
+  lore annotations export --project <project> [--after <cursor>] [--output <path>]`,
+		"annotations export": `Usage:
+  lore annotations export --project <project> [--after <cursor>] [--output <path>]`,
+		"briefings": `Usage:
+  lore briefings <show-css|show-skill|write-css|write-skill|contract>`,
+		"watch": `Usage:
+  lore [--config <credentials.yml>] watch --config <watch.yml> [--server <url>] [--token <token>]`,
+		"migrate": `Usage:
+  lore migrate`,
+		"version": `Usage:
+  lore version`,
+	}
+	if strings.HasPrefix(command, "upload ") {
+		usage[command] = "Usage:\n  lore " + command + " [flags] <path...>"
+	}
+	if strings.HasPrefix(command, "briefings ") {
+		usage[command] = "Usage:\n  lore " + command + " [flags]"
+	}
+	text, ok := usage[command]
+	if !ok {
+		text = usage[""]
+	}
+	_, _ = io.WriteString(writer, strings.TrimSpace(text)+"\n")
+}
+
+func (r *Runner) usageError(err error, command string) error {
+	_, _ = fmt.Fprintf(r.ErrOut, "error: %v\n\n", err)
+	r.commandUsage(r.ErrOut, command)
+	return reportedError{err: err}
+}
+
+func isHelp(argument string) bool {
+	return argument == "--help" || argument == "-h"
+}
+
+func helpRequested(args []string) bool {
+	for _, argument := range args {
+		if isHelp(argument) {
+			return true
+		}
+	}
+	return false
+}
+
+func validUploadAdapter(adapter string) bool {
+	switch adapter {
+	case "tasks", "notes", "briefing", "repository", "conversations":
+		return true
+	default:
+		return false
+	}
 }

@@ -78,7 +78,7 @@ func TestClientCredentialsThroughRealServerAndPostgres(t *testing.T) {
 	if err := os.Chmod(configPath, 0o444); err != nil {
 		t.Fatal(err)
 	}
-	runClientCommand(t, runner, ctx, "projects", "create", "--config", configPath, "--slug", "config-only", "--name", "Config only")
+	runClientCommand(t, runner, ctx, "project", "create", "--config", configPath, "--slug", "config-only", "--name", "Config only")
 	runClientCommand(t, runner, ctx, "upload", "notes", "--config", configPath, "--source-instance", "config-notes", fixtures)
 
 	environmentServer := httptest.NewServer(httpapi.New(pool, "environment-ingest", "environment-admin"))

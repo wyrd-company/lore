@@ -31,3 +31,14 @@ func TestBriefingResourceCommands(t *testing.T) {
 		t.Fatalf("unexpected contract: %#v", contract)
 	}
 }
+
+func TestSingularBriefingAlias(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	if err := New(&output, &output).Run(context.Background(), []string{"briefing", "show-css"}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), briefings.SiteCSS()) {
+		t.Fatal("briefing alias did not emit the embedded stylesheet exactly")
+	}
+}

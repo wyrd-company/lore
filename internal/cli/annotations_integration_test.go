@@ -56,7 +56,7 @@ func TestAnnotationSnapshotAndIncrementalExportThroughCLIWithPostgres(t *testing
 
 	var output bytes.Buffer
 	runner := New(&output, &output)
-	if err := runner.Run(ctx, []string{"annotations", "export", "--project", "lore", "--server", server.URL}); err != nil {
+	if err := runner.Run(ctx, []string{"annotation", "export", "--project", "lore", "--server", server.URL}); err != nil {
 		t.Fatal(err)
 	}
 	var snapshot annotations.Export
