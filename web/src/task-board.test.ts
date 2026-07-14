@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { orderedTaskLanes, taskStatusKey, taskStatusSlug } from "./task-board";
 
 describe("task board status vocabulary", () => {
+  it("returns no lanes while an empty board is loading", () => {
+    expect(orderedTaskLanes([])).toEqual([]);
+  });
+
   it("slugs status names and tolerates lifecycle synonyms", () => {
     expect(taskStatusSlug(" In_Progress ")).toBe("in-progress");
     for (const status of ["in progress", "in_progress", "doing", "wip"]) expect(taskStatusKey(status)).toBe("in-progress");

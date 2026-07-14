@@ -70,7 +70,7 @@ export function orderedTaskLanes(statuses: string[]): TaskLane[] {
   const custom = lanes.filter((lane) => !lane.recognized);
   const recognized = lanes.filter((lane) => lane.recognized).sort((left, right) => left.rank! - right.rank!);
   const result: TaskLane[] = [];
-  while (custom[0]?.anchorRank === undefined) result.push(custom.shift()!);
+  while (custom.length && custom[0].anchorRank === undefined) result.push(custom.shift()!);
   for (const lane of recognized) {
     result.push(lane);
     while (custom.length && custom[0].anchorRank! <= lane.rank!) result.push(custom.shift()!);
