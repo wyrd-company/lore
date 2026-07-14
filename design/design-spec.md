@@ -140,10 +140,94 @@ Loading uses skeletons in the same skeleton (`.lore-skel`); errors use
 
 ## 3. Source renderers
 
-### 3.1 Task page (`/{project}/tasks/{taskId}`)
+### 3.1 Tasks board (`/{project}/tasks`)
+
+The tasks index is a **kanban board**: one column per task status, cards
+flowing down each column. It is a *read-only projection* of the ingested
+kanban board — Lore stores the current representation and never writes back
+(concept `local-authority`, design "provides no task mutation operations").
+So the board deliberately omits every editing affordance a normal kanban tool
+carries: **no drag-and-drop, no move handles, no status/priority editing, no
+"add card", no inline menus.** Cards are links, not draggable objects. This is
+stated in the empty-state copy and reinforced by styling (cards use the normal
+link/pointer cursor, never `grab`; nothing has a drag handle). The value is
+*seeing flow*, not managing it.
+
+**Columns are data-driven, not hardcoded.** Each board declares its own status
+vocabulary (the kanban config's `statuses`), so the renderer builds one column
+per distinct status present, in this order:
+
+1. **Recognized statuses** sort by a canonical lifecycle rank:
+   `backlog → todo → in-progress → review → done → archived`. Recognition is
+   tolerant — status names are slugged (lowercased, spaces/underscores → `-`)
+   and matched against known synonyms so `in progress`, `in_progress`, `doing`,
+   `wip` all land in the in-progress lane; `qa`/`in-review` land in review;
+   `completed`/`shipped` land in done; `icebox`/`triage` land in backlog.
+2. **Unrecognized statuses** keep their **source order** (the order the board
+   config lists them) and are placed after any recognized statuses they follow
+   in that config, so an author's custom lane never disappears or jumps.
+
+`archived` is present as a lane but **collapsed by default** (a slim rail with
+its count; click to expand) so completed history does not dominate the board.
+
+**Column** (`.lore-col`):
+
+- **Header** (`.lore-col__head`, sticky within the column): a status swatch +
+  status label + a **count badge** (`.lore-col__count`, tabular). The swatch and
+  a 2px top rule are keyed to the status hue via `data-status` (see below).
+- **Body** (`.lore-col__body`): the stack of cards. Each column **scrolls
+  independently** on its own vertical overflow; the header stays pinned.
+- **Empty column**: a muted, centered `.lore-col__empty` ("Nothing here") — an
+  inline hint, never the full-page empty state.
+
+**Board container** (`.lore-board`): a horizontal track of columns. On screens
+too narrow for all lanes it **scrolls horizontally inside its own
+`overflow-x` container** (`.lore-board-scroll`) — the page itself never scrolls
+sideways. Columns hold a fixed comfortable width so cards stay readable; the
+board never squeezes columns to fit.
+
+**Task card** (`.lore-task-card`, an `<a>` to `/{project}/tasks/{taskId}`):
+
+- **Title** (`.lore-task-card__title`, up to two lines, then clamps).
+- **Id** (`.lore-task-card__id`, mono, faint) and an optional **priority tick**
+  (`.lore-task-card__prio[data-prio]`) — a small colored bar for
+  `low/medium/high/critical`; shown only for `high`/`critical` to keep the board
+  calm.
+- **Tags** (`.lore-chip--tag`, wrap; overflow collapses to a `+N` chip).
+- **Footer meta row** (`.lore-task-card__meta`), all icon + count, muted:
+  - **Dependencies** — "depends on" count (inward arrow ↳) and "blocks /
+    dependents" count (outward arrow ↱). Zero is omitted, not shown as `0`.
+  - **Open annotations** — an **ochre** dot + count
+    (`.lore-task-card__anno`), reusing the annotation `open` color so "someone
+    marked this" reads identically to everywhere else. Shown only when > 0.
+- The whole card is one link/hit target; hovering lifts it with the standard
+  soft paper shadow. No per-card action buttons.
+
+**Board toolbar** (`.lore-tasks-toolbar`): the existing `.lore-facets` filter
+chips (status, tag, priority) plus a **Board / List** view toggle
+(`.lore-segmented`, default **Board**). Filters and the toggle serialize to the
+query string, exactly like search, and **both views honor the same facets** —
+filtering to a tag simply thins every column (a column emptied by a filter shows
+its empty hint but stays visible so the lane structure is stable). The **List**
+view falls back to `.lore-row` index rows (title, id, status badge, tags),
+useful for dense scanning and small screens; under ~640px the toggle defaults to
+List because columns stop being legible.
+
+**States**: in-flight → three skeleton columns of `.lore-skel` cards. Whole
+board empty (no tasks in the project) → the full `.lore-empty` with a serif
+title and a hint pointing at the `lore watch` / task-upload path that would
+populate it, and a one-line note that the board is read-only.
+
+**Annotation targets** on the board itself: none. The board is navigation;
+annotation happens on the task page (§3.2). Cards only *surface* the open-count.
+
+### 3.2 Task page (`/{project}/tasks/{taskId}`)
 
 - Header title = task title; a `.lore-status[data-state]` badge for task status
-  (todo / doing / blocked / done) sits beside it.
+  sits beside it. `data-state` carries the slugged status
+  (`backlog` / `todo` / `in-progress` / `review` / `done` / `archived`, plus any
+  custom board status), colored by the same status-hue mapping the board uses so
+  a task reads identically in a column and on its own page.
 - **Metadata grid** (`.lore-task-meta`): key/value tiles for task identifier,
   status, and tags (`.lore-chip--tag`). Tags link to
   `/{project}/search?type=task&tag=…`.
@@ -160,7 +244,7 @@ Loading uses skeletons in the same skeleton (`.lore-skel`); errors use
   status) via structural selectors; description body also supports text-quote
   selection.
 
-### 3.2 Markdown page (notes & repo `.md`)
+### 3.3 Markdown page (notes & repo `.md`)
 
 - Body rendered into `.lore-prose` with GFM: tables (wrapped in
   `.table-scroll` for horizontal overflow), task lists, footnotes,
@@ -172,7 +256,7 @@ Loading uses skeletons in the same skeleton (`.lore-skel`); errors use
   exist — TOC and rail can share the rail via tabs if both are present).
 - Annotation targets: heading paths (structural) and text-quote selection.
 
-### 3.3 Briefing page (briefings)
+### 3.4 Briefing page (briefings)
 
 - The stored body HTML is inserted verbatim into a `.lore-prose` container
   inside the normal app shell — **no iframe** (content is trusted). `site.css`
@@ -185,7 +269,7 @@ Loading uses skeletons in the same skeleton (`.lore-skel`); errors use
 - Because briefing bodies are the stylesheet's second consumer, the whole
   §5 prose contract must render them beautifully with zero briefing-authored CSS.
 
-### 3.4 Structured YAML page (repo `.yml`)
+### 3.5 Structured YAML page (repo `.yml`)
 
 - Rendered by the structural renderer into `.lore-prose` semantics: mapping
   keys become headings (nesting depth → `h1`…`h6`, capped at `h6`), scalars
@@ -198,7 +282,7 @@ Loading uses skeletons in the same skeleton (`.lore-skel`); errors use
 - Annotation targets: YAML property paths (structural), e.g.
   `proposed-design.content-model`.
 
-### 3.5 Conversation page (conversations)
+### 3.6 Conversation page (conversations)
 
 - `.lore-convo` column of `.lore-msg` rows, each `data-role="user" | "assistant"`.
 - Avatar chip (`__avatar`) color-coded by role; a `__role` eyebrow label; body
@@ -389,7 +473,12 @@ avoid layout shift.
 
 **Search:** `lore-results`, `lore-result`, `lore-chunk`.
 
-**Task:** `lore-task-meta`, `lore-deps`, `lore-dep-link`.
+**Task board:** `lore-tasks-toolbar`, `lore-board-scroll`, `lore-board`,
+`lore-col` (+ `__head`, `__count`, `__body`, `__empty`, `[data-status]`,
+`is-collapsed`), `lore-task-card` (+ `__title`, `__id`, `__prio`, `__meta`,
+`__dep`, `__anno`).
+
+**Task page:** `lore-task-meta`, `lore-deps`, `lore-dep-link`.
 
 **Conversation:** `lore-convo`, `lore-msg`, `lore-thinking`.
 
@@ -415,7 +504,11 @@ Full values in `site.css` and `tokens.md`. Highlights:
 - **Radii:** 3 / 5 / 8 / 12px + pill. **Borders:** hairline 1px, thick 2px.
 - **Color:** warm-paper light / ink dark surfaces; verdigris `--accent`; ochre
   `--gold` for annotations; fixed per-source-type badge colors; annotation
-  state colors (open=ochre, resolved=green, dismissed=grey) reused for tasks.
+  state colors (open=ochre, resolved=green, dismissed=grey). Task-status hues
+  (`--task-backlog/todo/in-progress/review/done/archived`) are a separate,
+  data-driven set keyed by `[data-status]` on board columns, status badges, and
+  card ticks; ochre stays reserved for annotations (the card's open-annotation
+  dot is the only ochre on the board).
 - **Elevation:** three soft paper shadows. **Motion:** 120/200/320ms with two
   eased curves; all motion respects `prefers-reduced-motion`.
 

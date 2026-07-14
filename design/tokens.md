@@ -71,7 +71,8 @@ Values differ per theme; use the role, not the hex.
 | `--status-open` / `--status-open-soft` | open annotation (ochre) |
 | `--status-resolved` / `--status-resolved-soft` | resolved annotation / done task (green) |
 | `--status-dismissed` / `--status-dismissed-soft` | dismissed annotation (grey) |
-| `--task-todo/doing/blocked/done` | task status hues |
+| `--task-backlog/todo/in-progress/review/blocked/done/archived` (+ `-soft`) | data-driven kanban lane hues, keyed by `[data-status]` on board columns, status badges, and card priority ticks; `--task-doing` aliases `in-progress` |
+| `--task-status-fallback` (+ `-soft`) | hue for unrecognized custom board statuses |
 | `--danger` / `--danger-soft` | destructive / error |
 | `--info` / `--info-soft` | informational / task source |
 
