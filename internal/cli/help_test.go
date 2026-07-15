@@ -1,3 +1,11 @@
+/*
+---
+relationships:
+
+	references: system
+
+---
+*/
 package cli
 
 import (
