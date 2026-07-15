@@ -121,7 +121,7 @@ test("validates the complete archive journey with real services", async ({ page 
   await expect(page.getByText("Category saved")).toBeVisible();
   await page.goto("/e2e-primary/briefings");
   await expect(page).toHaveURL(/\/briefings\/[^?]+$/);
-  await expect(page.getByRole("heading", { name: "Architecture", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Architecture", level: 1, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Home", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("complementary", { name: "Other briefings" }).getByRole("link", { name: "Architecture" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".brief-category").filter({ hasText: "Foundations" })).toHaveAttribute("open", "");
