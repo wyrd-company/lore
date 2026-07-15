@@ -20,6 +20,27 @@ type Options struct {
 	Boundary       synchronization.Boundary
 }
 
+type WatchOptions struct {
+	SkipPaths map[string]struct{}
+}
+
+func (options WatchOptions) ShouldSkip(path string) bool {
+	_, skipped := options.SkipPaths[canonicalPath(path)]
+	return skipped
+}
+
+func recordParseFailure(manifest *synchronization.Manifest, path string, err error) {
+	manifest.Failures = append(manifest.Failures, synchronization.ParseFailure{Path: canonicalPath(path), Message: err.Error()})
+}
+
+func canonicalPath(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err == nil {
+		return filepath.Clean(absolute)
+	}
+	return filepath.Clean(path)
+}
+
 func newManifest(options Options, sourceType string) synchronization.Manifest {
 	boundary := options.Boundary
 	if boundary == "" {

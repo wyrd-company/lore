@@ -21,7 +21,13 @@ type Manifest struct {
 	Boundary       Boundary        `json:"boundary"`
 	Documents      []Document      `json:"documents"`
 	Relationships  []Relationship  `json:"relationships,omitempty"`
+	Failures       []ParseFailure  `json:"failures,omitempty"`
 	Metadata       json.RawMessage `json:"metadata,omitempty"`
+}
+
+type ParseFailure struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
 }
 
 type Document struct {
@@ -50,6 +56,7 @@ type Result struct {
 	Updated   int `json:"updated"`
 	Unchanged int `json:"unchanged"`
 	Deleted   int `json:"deleted"`
+	Failed    int `json:"failed"`
 }
 
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -145,6 +152,19 @@ func (m Manifest) Validate() error {
 		if len(relationship.Metadata) > 0 && !json.Valid(relationship.Metadata) {
 			return fmt.Errorf("relationships[%d].metadata must be valid JSON", i)
 		}
+	}
+	seenFailures := make(map[string]struct{}, len(m.Failures))
+	for i, failure := range m.Failures {
+		if failure.Path == "" {
+			return fmt.Errorf("failures[%d].path is required", i)
+		}
+		if failure.Message == "" {
+			return fmt.Errorf("failures[%d].message is required", i)
+		}
+		if _, exists := seenFailures[failure.Path]; exists {
+			return fmt.Errorf("duplicate failure path %q", failure.Path)
+		}
+		seenFailures[failure.Path] = struct{}{}
 	}
 	return nil
 }

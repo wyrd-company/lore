@@ -38,6 +38,11 @@ func TestManifestValidate(t *testing.T) {
 		{"invalid hash", func(m *Manifest) { m.Documents[0].ContentHash = "nope" }},
 		{"duplicate identity", func(m *Manifest) { m.Documents = append(m.Documents, m.Documents[0]) }},
 		{"duplicate term", func(m *Manifest) { m.Documents[0].Terms = []string{"term", "term"} }},
+		{"missing failure path", func(m *Manifest) { m.Failures = []ParseFailure{{Message: "invalid YAML"}} }},
+		{"missing failure message", func(m *Manifest) { m.Failures = []ParseFailure{{Path: "/sources/broken.md"}} }},
+		{"duplicate failure path", func(m *Manifest) {
+			m.Failures = []ParseFailure{{Path: "/sources/broken.md", Message: "invalid YAML"}, {Path: "/sources/broken.md", Message: "still invalid"}}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

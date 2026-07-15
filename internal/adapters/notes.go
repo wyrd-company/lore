@@ -12,6 +12,14 @@ import (
 )
 
 func Notes(directory string, options Options) (synchronization.Manifest, error) {
+	return notes(directory, options, nil)
+}
+
+func WatchNotes(directory string, options Options, watch WatchOptions) (synchronization.Manifest, error) {
+	return notes(directory, options, &watch)
+}
+
+func notes(directory string, options Options, watch *WatchOptions) (synchronization.Manifest, error) {
 	manifest := newManifest(options, "note")
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -23,12 +31,19 @@ func Notes(directory string, options Options) (synchronization.Manifest, error) 
 			continue
 		}
 		path := filepath.Join(directory, entry.Name())
+		if watch != nil && watch.ShouldSkip(path) {
+			continue
+		}
 		source, err := os.ReadFile(path)
 		if err != nil {
 			return manifest, fmt.Errorf("read note %q: %w", path, err)
 		}
 		rendered, err := rendering.Markdown(source)
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, fmt.Errorf("render note %q: %w", path, err)
 		}
 		identity := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
@@ -44,6 +59,10 @@ func Notes(directory string, options Options) (synchronization.Manifest, error) 
 			"path": path, "filename": entry.Name(),
 		}, tags)
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, err
 		}
 		document.Terms = normalizeTaxonomyValues(stringSlice(rendered.FrontMatter["terms"]))

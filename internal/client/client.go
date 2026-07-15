@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wyrd-company/lore/internal/annotations"
+	"github.com/wyrd-company/lore/internal/ingestfailures"
 	"github.com/wyrd-company/lore/internal/projects"
 	"github.com/wyrd-company/lore/internal/retrieval"
 	"github.com/wyrd-company/lore/internal/synchronization"
@@ -213,4 +214,31 @@ func (c *Client) Synchronize(ctx context.Context, manifest synchronization.Manif
 		return synchronization.Result{}, fmt.Errorf("decode synchronization result: %w", err)
 	}
 	return result, nil
+}
+
+func (c *Client) IngestionFailures(ctx context.Context, project, sourceType, sourceInstance string) ([]ingestfailures.Record, error) {
+	query := url.Values{}
+	query.Set("sourceType", sourceType)
+	query.Set("sourceInstance", sourceInstance)
+	endpoint := c.baseURL + "/api/projects/" + url.PathEscape(project) + "/ingestion-failures?" + query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create ingestion failure request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve ingestion failures from Lore: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("Lore server returned %s", response.Status)
+	}
+	var listing struct {
+		Failures []ingestfailures.Record `json:"failures"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&listing); err != nil {
+		return nil, fmt.Errorf("decode ingestion failures: %w", err)
+	}
+	return listing.Failures, nil
 }

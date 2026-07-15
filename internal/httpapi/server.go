@@ -12,8 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wyrd-company/lore/internal/annotations"
+	"github.com/wyrd-company/lore/internal/briefings"
 	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/embedding"
+	"github.com/wyrd-company/lore/internal/ingestfailures"
 	"github.com/wyrd-company/lore/internal/projects"
 	"github.com/wyrd-company/lore/internal/retrieval"
 	"github.com/wyrd-company/lore/internal/synchronization"
@@ -26,6 +28,8 @@ type Server struct {
 	search      *retrieval.Repository
 	browse      *browse.Repository
 	annotations *annotations.Repository
+	briefings   *briefings.Repository
+	failures    *ingestfailures.Repository
 	projects    *projects.Repository
 	embedder    *embedding.Client
 	ingestToken string
@@ -38,7 +42,7 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 		embedder = embedders[0]
 	}
 	server := &Server{
-		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), projects: projects.NewRepository(pool), annotations: annotations.NewRepository(pool), embedder: embedder,
+		pool: pool, sync: synchronization.NewRepository(pool), search: retrieval.NewRepository(pool), browse: browse.NewRepository(pool), projects: projects.NewRepository(pool), annotations: annotations.NewRepository(pool), briefings: briefings.NewRepository(pool), failures: ingestfailures.NewRepository(pool), embedder: embedder,
 		ingestToken: ingestToken, adminToken: adminToken,
 	}
 	mux := http.NewServeMux()
@@ -61,6 +65,11 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/copy", projectScope(pool, http.HandlerFunc(server.copyAnnotation)))
 	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/move", projectScope(pool, http.HandlerFunc(server.moveAnnotation)))
 	mux.Handle("GET /api/projects/{project}/annotations/{annotation}/events", projectScope(pool, http.HandlerFunc(server.annotationEvents)))
+
+	// Project presentation preferences and retryable ingestion failures.
+	mux.Handle("PATCH /api/projects/{project}/briefings/{document}", projectScope(pool, http.HandlerFunc(server.updateBriefingSetting)))
+	mux.Handle("GET /api/projects/{project}/ingestion-failures", projectScope(pool, http.HandlerFunc(server.listIngestionFailures)))
+	mux.Handle("DELETE /api/projects/{project}/ingestion-failures/{failure}", projectScope(pool, http.HandlerFunc(server.deleteIngestionFailure)))
 
 	// Synchronization boundary, protected by the ingest credential.
 	mux.Handle("POST /api/projects/{project}/synchronizations",

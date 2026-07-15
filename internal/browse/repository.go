@@ -52,6 +52,8 @@ type DocumentSummary struct {
 	DependencyCount     int             `json:"dependencyCount"`
 	DependentCount      int             `json:"dependentCount"`
 	OpenAnnotationCount int             `json:"openAnnotationCount"`
+	BriefingCategory    string          `json:"briefingCategory,omitempty"`
+	BriefingHome        bool            `json:"briefingHome,omitempty"`
 }
 
 type RepositoryGroup struct {
@@ -75,16 +77,18 @@ type TermReference struct {
 }
 
 type BrowseResponse struct {
-	Project       ProjectSummary    `json:"project"`
-	Sources       []SourceSummary   `json:"sources"`
-	Tags          []string          `json:"tags"`
-	Terms         []TermSummary     `json:"terms"`
-	Tasks         []DocumentSummary `json:"tasks"`
-	TaskStatuses  []string          `json:"taskStatuses"`
-	Notes         []DocumentSummary `json:"notes"`
-	Briefings     []DocumentSummary `json:"briefings"`
-	Repositories  []RepositoryGroup `json:"repositories"`
-	Conversations []DocumentSummary `json:"conversations"`
+	Project               ProjectSummary    `json:"project"`
+	Sources               []SourceSummary   `json:"sources"`
+	Tags                  []string          `json:"tags"`
+	Terms                 []TermSummary     `json:"terms"`
+	Tasks                 []DocumentSummary `json:"tasks"`
+	TaskStatuses          []string          `json:"taskStatuses"`
+	Notes                 []DocumentSummary `json:"notes"`
+	Briefings             []DocumentSummary `json:"briefings"`
+	Repositories          []RepositoryGroup `json:"repositories"`
+	Conversations         []DocumentSummary `json:"conversations"`
+	AnnotationCount       int               `json:"annotationCount"`
+	IngestionFailureCount int               `json:"ingestionFailureCount"`
 }
 
 type Relationship struct {
@@ -184,7 +188,16 @@ func (r *Repository) Browse(ctx context.Context, projectID uuid.UUID) (BrowseRes
 	if err != nil {
 		return BrowseResponse{}, err
 	}
+	var annotationCount, ingestionFailureCount int
+	if err := r.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM annotations WHERE project_id = $1),
+		(SELECT count(*) FROM ingestion_failures WHERE project_id = $1)`, projectID).
+		Scan(&annotationCount, &ingestionFailureCount); err != nil {
+		return BrowseResponse{}, err
+	}
 	response := BrowseResponse{Project: projects, Sources: sources}
+	response.AnnotationCount = annotationCount
+	response.IngestionFailureCount = ingestionFailureCount
 	response.Tags = make([]string, 0)
 	response.Terms = terms
 	response.Tasks = make([]DocumentSummary, 0)
@@ -275,15 +288,17 @@ func (r *Repository) Document(ctx context.Context, projectID, documentID uuid.UU
 			d.created_at, d.updated_at,
 			(SELECT count(*) FROM chunks c WHERE c.revision_id = r.id),
 			(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id = c.id WHERE c.revision_id = r.id),
-			r.content_hash, r.normalized_text, r.rendered_content, r.renderer, r.provenance
+			r.content_hash, r.normalized_text, r.rendered_content, r.renderer, r.provenance,
+			coalesce(bs.category, ''), coalesce(bs.is_home, false)
 		FROM documents d
 		JOIN source_instances si ON si.id = d.source_instance_id AND si.project_id = d.project_id
 		JOIN revisions r ON r.id = d.current_revision_id AND r.project_id = d.project_id
+		LEFT JOIN briefing_settings bs ON bs.document_id = d.id AND bs.project_id = d.project_id
 		WHERE d.project_id = $1 AND d.id = $2 AND d.deleted_at IS NULL`, projectID, documentID).
 		Scan(&detail.ID, &detail.SourceType, &detail.SourceInstance, &detail.SourceIdentity, &detail.Title,
 			&detail.RevisionID, &detail.Metadata, &detail.Tags, &detail.CreatedAt, &detail.UpdatedAt,
 			&detail.ChunkCount, &detail.EmbeddedChunkCount, &detail.ContentHash, &detail.NormalizedText,
-			&detail.RenderedContent, &detail.Renderer, &detail.Provenance)
+			&detail.RenderedContent, &detail.Renderer, &detail.Provenance, &detail.BriefingCategory, &detail.BriefingHome)
 	if err != nil {
 		return detail, err
 	}
@@ -371,10 +386,12 @@ func (r *Repository) documents(ctx context.Context, projectID uuid.UUID) ([]Docu
 				JOIN documents source ON source.id = rel.source_document_id AND source.project_id = rel.project_id
 				WHERE rel.project_id = d.project_id AND rel.target_document_id = d.id AND source.deleted_at IS NULL),
 			(SELECT count(*) FROM annotations a
-				WHERE a.project_id = d.project_id AND a.document_id = d.id AND a.status = 'open' AND a.tombstoned_at IS NULL)
+				WHERE a.project_id = d.project_id AND a.document_id = d.id AND a.status = 'open' AND a.tombstoned_at IS NULL),
+			coalesce(bs.category, ''), coalesce(bs.is_home, false)
 		FROM documents d
 		JOIN source_instances si ON si.id = d.source_instance_id AND si.project_id = d.project_id
 		JOIN revisions r ON r.id = d.current_revision_id AND r.project_id = d.project_id
+		LEFT JOIN briefing_settings bs ON bs.document_id = d.id AND bs.project_id = d.project_id
 		WHERE d.project_id = $1 AND d.deleted_at IS NULL
 		ORDER BY d.source_type, d.title, d.id`, projectID)
 	if err != nil {
@@ -387,7 +404,7 @@ func (r *Repository) documents(ctx context.Context, projectID uuid.UUID) ([]Docu
 		if err := rows.Scan(&document.ID, &document.SourceType, &document.SourceInstance, &document.SourceIdentity,
 			&document.Title, &document.RevisionID, &document.Metadata, &document.Tags, &document.CreatedAt,
 			&document.UpdatedAt, &document.ChunkCount, &document.EmbeddedChunkCount, &document.DependencyCount,
-			&document.DependentCount, &document.OpenAnnotationCount); err != nil {
+			&document.DependentCount, &document.OpenAnnotationCount, &document.BriefingCategory, &document.BriefingHome); err != nil {
 			return nil, err
 		}
 		result = append(result, document)

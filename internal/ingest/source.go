@@ -34,35 +34,76 @@ func (s Source) WatchPaths() []string {
 }
 
 func (s Source) Build(boundary synchronization.Boundary) ([]synchronization.Manifest, int, []string, error) {
+	return s.build(boundary, nil)
+}
+
+func (s Source) BuildForWatcher(boundary synchronization.Boundary, skipPaths map[string]struct{}) ([]synchronization.Manifest, int, []string, error) {
+	watch := &adapters.WatchOptions{SkipPaths: skipPaths}
+	return s.build(boundary, watch)
+}
+
+func (s Source) build(boundary synchronization.Boundary, watch *adapters.WatchOptions) ([]synchronization.Manifest, int, []string, error) {
 	if s.SourceInstance == "" {
 		return nil, 0, nil, fmt.Errorf("source-instance is required")
 	}
 	options := adapters.Options{Project: s.Project, SourceInstance: s.SourceInstance, Boundary: boundary}
 	switch s.Adapter {
 	case "tasks":
-		manifest, err := adapters.Tasks(s.Path, options)
+		var manifest synchronization.Manifest
+		var err error
+		if watch == nil {
+			manifest, err = adapters.Tasks(s.Path, options)
+		} else {
+			manifest, err = adapters.WatchTasks(s.Path, options, *watch)
+		}
 		return one(manifest, err)
 	case "notes":
-		manifest, err := adapters.Notes(s.Path, options)
+		var manifest synchronization.Manifest
+		var err error
+		if watch == nil {
+			manifest, err = adapters.Notes(s.Path, options)
+		} else {
+			manifest, err = adapters.WatchNotes(s.Path, options, *watch)
+		}
 		return one(manifest, err)
 	case "briefing":
-		manifest, err := adapters.Briefing(s.Path, s.Title, options)
+		var manifest synchronization.Manifest
+		var err error
+		if watch == nil {
+			manifest, err = adapters.Briefing(s.Path, s.Title, options)
+		} else {
+			manifest, err = adapters.WatchBriefing(s.Path, s.Title, options, *watch)
+		}
 		return one(manifest, err)
 	case "repository":
 		paths := s.Paths
 		if len(paths) == 0 && s.Path != "" {
 			paths = []string{s.Path}
 		}
-		manifest, err := adapters.Repository(paths, adapters.RepositoryOptions{
-			Options: options, Repository: s.Repository, Branch: s.Branch,
-		})
+		repositoryOptions := adapters.RepositoryOptions{Options: options, Repository: s.Repository, Branch: s.Branch}
+		var manifest synchronization.Manifest
+		var err error
+		if watch == nil {
+			manifest, err = adapters.Repository(paths, repositoryOptions)
+		} else {
+			manifest, err = adapters.WatchRepository(paths, repositoryOptions, *watch)
+		}
 		return one(manifest, err)
 	case "conversations":
 		mappings, err := adapters.LoadProjectMappings(s.Mapping)
 		if err != nil {
 			return nil, 0, nil, err
 		}
-		scan, err := adapters.Conversations(s.Provider, s.Path, s.SourceInstance, mappings, s.FallbackProject)
+		var scan adapters.ConversationScan
+		if watch == nil {
+			scan, err = adapters.Conversations(s.Provider, s.Path, s.SourceInstance, mappings, s.FallbackProject)
+		} else {
+			failureProject := s.Project
+			if failureProject == "" {
+				failureProject = s.FallbackProject
+			}
+			scan, err = adapters.WatchConversations(s.Provider, s.Path, s.SourceInstance, mappings, s.FallbackProject, failureProject, *watch)
+		}
 		if err != nil {
 			return nil, 0, nil, err
 		}

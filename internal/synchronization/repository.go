@@ -57,6 +57,16 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 	if err != nil {
 		return result, fmt.Errorf("resolve source instance: %w", err)
 	}
+	for _, failure := range manifest.Failures {
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO ingestion_failures (project_id, source_instance_id, path, message)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (project_id, source_instance_id, path)
+			DO UPDATE SET message = EXCLUDED.message, updated_at = now()`, projectID, sourceInstanceID, failure.Path, failure.Message); err != nil {
+			return result, fmt.Errorf("record ingestion failure for %q: %w", failure.Path, err)
+		}
+	}
+	result.Failed = len(manifest.Failures)
 
 	identities := make([]string, 0, len(manifest.Documents))
 	documentIDs := make(map[string]uuid.UUID, len(manifest.Documents))
@@ -102,6 +112,14 @@ func (r *Repository) Apply(ctx context.Context, projectID uuid.UUID, manifest Ma
 			  AND source_instance_id = $2
 			  AND deleted_at IS NULL
 			  AND NOT (source_identity = ANY($3::text[]))
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM ingestion_failures failure
+				JOIN revisions current_revision ON current_revision.id = documents.current_revision_id
+				WHERE failure.project_id = documents.project_id
+				  AND failure.source_instance_id = documents.source_instance_id
+				  AND failure.path = current_revision.provenance->>'path'
+			  )
 			RETURNING id`, projectID, sourceInstanceID, identities)
 		if deleteErr != nil {
 			return result, fmt.Errorf("delete documents absent from complete manifest: %w", deleteErr)

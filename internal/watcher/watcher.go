@@ -14,6 +14,7 @@ import (
 
 	"github.com/wyrd-company/lore/internal/client"
 	"github.com/wyrd-company/lore/internal/ingest"
+	"github.com/wyrd-company/lore/internal/ingestfailures"
 	"github.com/wyrd-company/lore/internal/synchronization"
 )
 
@@ -152,7 +153,25 @@ func (w *Watcher) runWorker(ctx context.Context, source ingest.Source, jobs chan
 func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source, boundary synchronization.Boundary) bool {
 	delay := w.retryInitial
 	for attempt := 1; attempt <= w.retryAttempts; attempt++ {
-		manifests, skipped, warnings, err := source.Build(boundary)
+		failureProject := source.Project
+		if failureProject == "" && source.Adapter == "conversations" {
+			failureProject = source.FallbackProject
+		}
+		skipPaths := make(map[string]struct{})
+		var err error
+		if failureProject != "" {
+			var failures []ingestfailures.Record
+			failures, err = w.client.IngestionFailures(ctx, failureProject, sourceType(source.Adapter), source.SourceInstance)
+			for _, failure := range failures {
+				skipPaths[filepath.Clean(failure.Path)] = struct{}{}
+			}
+		}
+		var manifests []synchronization.Manifest
+		var skipped int
+		var warnings []string
+		if err == nil {
+			manifests, skipped, warnings, err = source.BuildForWatcher(boundary, skipPaths)
+		}
 		for _, warning := range warnings {
 			w.writeLog("%s warning: %s\n", source.SourceInstance, warning)
 		}
@@ -163,8 +182,8 @@ func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source
 				if err != nil {
 					break
 				}
-				w.writeLog("%s/%s: %d created, %d updated, %d unchanged, %d deleted\n",
-					manifest.Project, manifest.SourceInstance, result.Created, result.Updated, result.Unchanged, result.Deleted)
+				w.writeLog("%s/%s: %d created, %d updated, %d unchanged, %d deleted, %d failed\n",
+					manifest.Project, manifest.SourceInstance, result.Created, result.Updated, result.Unchanged, result.Deleted, result.Failed)
 			}
 		}
 		if err == nil {
@@ -185,6 +204,19 @@ func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source
 		delay = min(delay*2, w.retryMaximum)
 	}
 	return false
+}
+
+func sourceType(adapter string) string {
+	switch adapter {
+	case "tasks":
+		return "task"
+	case "notes":
+		return "note"
+	case "conversations":
+		return "conversation"
+	default:
+		return adapter
+	}
 }
 
 func (w *Watcher) writeLog(format string, arguments ...any) {

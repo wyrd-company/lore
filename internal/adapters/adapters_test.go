@@ -157,6 +157,61 @@ func TestNotesExtractsTermsAndRelatedNotes(t *testing.T) {
 	}
 }
 
+func TestWatchNotesRecordsParseFailuresAndSkipsOnlyFailedPaths(t *testing.T) {
+	directory := t.TempDir()
+	goodPath := filepath.Join(directory, "good.md")
+	brokenPath := filepath.Join(directory, "broken.md")
+	if err := os.WriteFile(goodPath, []byte("---\ntitle: Good note\n---\nGood body.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brokenPath, []byte("---\ntitle: [invalid\n---\nBroken body.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Notes(directory, fixtureOptions("notes")); err == nil {
+		t.Fatal("strict note upload should reject malformed front matter")
+	}
+	manifest, err := WatchNotes(directory, fixtureOptions("notes"), WatchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Documents) != 1 || manifest.Documents[0].Title != "Good note" || len(manifest.Failures) != 1 {
+		t.Fatalf("watch note manifest = %#v", manifest)
+	}
+	if manifest.Failures[0].Path != canonicalPath(brokenPath) || !strings.Contains(manifest.Failures[0].Message, "parse Markdown front matter") {
+		t.Fatalf("watch note failure = %#v", manifest.Failures[0])
+	}
+	retry, err := WatchNotes(directory, fixtureOptions("notes"), WatchOptions{SkipPaths: map[string]struct{}{canonicalPath(brokenPath): {}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retry.Documents) != 1 || len(retry.Failures) != 0 {
+		t.Fatalf("skipped note retry manifest = %#v", retry)
+	}
+}
+
+func TestWatchTasksRecordsMalformedCardsWithoutBlockingValidCards(t *testing.T) {
+	board := t.TempDir()
+	if err := os.Mkdir(filepath.Join(board, "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(board, "config.yml"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(board, "tasks", "1-good.md"), []byte("---\nid: 1\ntitle: Good task\n---\nBody.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(board, "tasks", "2-broken.md"), []byte("---\nid: nope\ntitle: Broken task\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := WatchTasks(board, fixtureOptions("tasks"), WatchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Documents) != 1 || len(manifest.Failures) != 1 || manifest.Documents[0].Identity != "1" {
+		t.Fatalf("watch task manifest = %#v", manifest)
+	}
+}
+
 func TestBriefingExtractsTrustedBody(t *testing.T) {
 	manifest, err := Briefing(filepath.Join("testdata", "briefing", "architecture.html"), "", fixtureOptions("briefing"))
 	if err != nil {

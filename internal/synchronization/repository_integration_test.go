@@ -65,6 +65,8 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 		},
 		Relationships: []Relationship{{SourceIdentity: "two", TargetIdentity: "one", Type: "task-depends-on"}},
 	}
+	manifest.Documents[0].Provenance = []byte(`{"path":"/sources/one.md"}`)
+	manifest.Documents[1].Provenance = []byte(`{"path":"/sources/two.md"}`)
 	manifest.Documents[0].Tags = []string{"architecture", "lore"}
 	manifest.Documents[0].Terms = []string{"knowledge-portal", "missing-term"}
 	manifest.Documents[1].DefinesTerm = "knowledge-portal"
@@ -126,6 +128,29 @@ func TestRepositoryApplyWithPostgres(t *testing.T) {
 	var revisions int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM revisions`).Scan(&revisions); err != nil || revisions != 2 {
 		t.Fatalf("idempotency revision count = %d, err = %v", revisions, err)
+	}
+
+	withFailure := manifest
+	withFailure.Documents = manifest.Documents[:1]
+	withFailure.Relationships = nil
+	withFailure.Failures = []ParseFailure{{Path: "/sources/two.md", Message: "invalid YAML"}}
+	result, err = repository.Apply(ctx, projectID, withFailure)
+	if err != nil {
+		t.Fatalf("apply parse failure: %v", err)
+	}
+	if result.Failed != 1 || result.Deleted != 0 {
+		t.Fatalf("parse failure result = %+v", result)
+	}
+	assertCurrentDocuments(t, ctx, pool, 2)
+	var failureCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ingestion_failures WHERE path = '/sources/two.md'`).Scan(&failureCount); err != nil || failureCount != 1 {
+		t.Fatalf("ingestion failure count = %d, err = %v", failureCount, err)
+	}
+	if _, err := repository.Apply(ctx, projectID, manifest); err != nil {
+		t.Fatalf("restore full relationship projection: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM ingestion_failures`); err != nil {
+		t.Fatal(err)
 	}
 
 	partial := manifest

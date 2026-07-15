@@ -23,6 +23,14 @@ type RepositoryOptions struct {
 }
 
 func Repository(paths []string, options RepositoryOptions) (synchronization.Manifest, error) {
+	return repository(paths, options, nil)
+}
+
+func WatchRepository(paths []string, options RepositoryOptions, watch WatchOptions) (synchronization.Manifest, error) {
+	return repository(paths, options, &watch)
+}
+
+func repository(paths []string, options RepositoryOptions, watch *WatchOptions) (synchronization.Manifest, error) {
 	manifest := newManifest(options.Options, "repository")
 	files, err := collectFiles(paths)
 	if err != nil {
@@ -47,6 +55,9 @@ func Repository(paths []string, options RepositoryOptions) (synchronization.Mani
 	}
 
 	for _, path := range files {
+		if watch != nil && watch.ShouldSkip(path) {
+			continue
+		}
 		source, err := os.ReadFile(path)
 		if err != nil {
 			return manifest, fmt.Errorf("read repository document %q: %w", path, err)
@@ -74,6 +85,10 @@ func Repository(paths []string, options RepositoryOptions) (synchronization.Mani
 			renderer = "text"
 		}
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, fmt.Errorf("render repository document %q: %w", path, err)
 		}
 		title := titleFromPath(path)
@@ -94,6 +109,10 @@ func Repository(paths []string, options RepositoryOptions) (synchronization.Mani
 			"path": path, "repository": repository, "branch": branch,
 		}, stringSlice(rendered.FrontMatter["tags"]))
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, err
 		}
 		document.Terms = normalizeTaxonomyValues(stringSlice(rendered.FrontMatter["terms"]))

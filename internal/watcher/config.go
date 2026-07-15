@@ -3,6 +3,7 @@ package watcher
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/wyrd-company/lore/internal/ingest"
@@ -70,6 +71,16 @@ func LoadConfig(path string) (Config, error) {
 		}
 		if len(source.WatchPaths()) == 0 {
 			return Config{}, fmt.Errorf("source %d requires a path", index)
+		}
+		if source.Path != "" {
+			if source.Path, err = filepath.Abs(source.Path); err != nil {
+				return Config{}, fmt.Errorf("resolve source %d path: %w", index, err)
+			}
+		}
+		for pathIndex := range source.Paths {
+			if source.Paths[pathIndex], err = filepath.Abs(source.Paths[pathIndex]); err != nil {
+				return Config{}, fmt.Errorf("resolve source %d path: %w", index, err)
+			}
 		}
 	}
 	return config, nil

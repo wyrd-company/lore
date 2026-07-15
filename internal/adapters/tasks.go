@@ -40,9 +40,27 @@ type taskBoardMetadata struct {
 }
 
 func Tasks(boardPath string, options Options) (synchronization.Manifest, error) {
+	return tasks(boardPath, options, nil)
+}
+
+func WatchTasks(boardPath string, options Options, watch WatchOptions) (synchronization.Manifest, error) {
+	return tasks(boardPath, options, &watch)
+}
+
+func tasks(boardPath string, options Options, watch *WatchOptions) (synchronization.Manifest, error) {
 	manifest := newManifest(options, "task")
+	configPath := filepath.Join(boardPath, "config.yml")
+	if watch != nil && watch.ShouldSkip(configPath) {
+		manifest.Boundary = synchronization.BoundaryPartial
+		return manifest, manifest.Validate()
+	}
 	config, err := loadTaskConfig(boardPath)
 	if err != nil {
+		if watch != nil {
+			recordParseFailure(&manifest, configPath, err)
+			manifest.Boundary = synchronization.BoundaryPartial
+			return manifest, manifest.Validate()
+		}
 		return manifest, err
 	}
 	tasksDirectory := filepath.Join(boardPath, filepath.Clean(config.TasksDirectory))
@@ -73,12 +91,19 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 			continue
 		}
 		path := filepath.Join(tasksDirectory, entry.Name())
+		if watch != nil && watch.ShouldSkip(path) {
+			continue
+		}
 		source, err := os.ReadFile(path)
 		if err != nil {
 			return manifest, fmt.Errorf("read task %q: %w", path, err)
 		}
 		frontMatter, body, err := parseTask(source)
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, fmt.Errorf("parse task %q: %w", path, err)
 		}
 		if frontMatter.Status == "" {
@@ -96,25 +121,35 @@ func Tasks(boardPath string, options Options) (synchronization.Manifest, error) 
 		for _, dependency := range frontMatter.DependsOn {
 			target := strconv.Itoa(dependency)
 			dependencies = append(dependencies, target)
-			manifest.Relationships = append(manifest.Relationships, synchronization.Relationship{
-				SourceIdentity: identity, TargetIdentity: target, Type: "task-depends-on",
-			})
 		}
 		rendered, err := rendering.Task(rendering.TaskModel{
 			ID: identity, Title: frontMatter.Title, Status: frontMatter.Status, Priority: frontMatter.Priority,
 			Assignee: frontMatter.Assignee, Body: string(body), Tags: frontMatter.Tags, DependsOn: dependencies,
 		})
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, fmt.Errorf("render task %q: %w", path, err)
 		}
 		document, err := makeDocument(identity, frontMatter.Title, source, "task", rendered, frontMatter, map[string]any{
 			"path": path, "filename": entry.Name(),
 		}, frontMatter.Tags)
 		if err != nil {
+			if watch != nil {
+				recordParseFailure(&manifest, path, err)
+				continue
+			}
 			return manifest, err
 		}
 		document.Terms = normalizeTaxonomyValues(frontMatter.Terms)
 		manifest.Documents = append(manifest.Documents, document)
+		for _, target := range dependencies {
+			manifest.Relationships = append(manifest.Relationships, synchronization.Relationship{
+				SourceIdentity: identity, TargetIdentity: target, Type: "task-depends-on",
+			})
+		}
 	}
 	manifest.Metadata, err = json.Marshal(taskBoardMetadata{Statuses: statuses})
 	if err != nil {

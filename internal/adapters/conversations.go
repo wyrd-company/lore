@@ -33,13 +33,25 @@ type ConversationScan struct {
 }
 
 func Conversations(provider, directory, sourceInstance string, mappings ProjectMappings, fallbackProject string) (ConversationScan, error) {
+	return conversations(provider, directory, sourceInstance, mappings, fallbackProject, "", nil)
+}
+
+func WatchConversations(provider, directory, sourceInstance string, mappings ProjectMappings, fallbackProject, failureProject string, watch WatchOptions) (ConversationScan, error) {
+	return conversations(provider, directory, sourceInstance, mappings, fallbackProject, failureProject, &watch)
+}
+
+func conversations(provider, directory, sourceInstance string, mappings ProjectMappings, fallbackProject, failureProject string, watch *WatchOptions) (ConversationScan, error) {
 	files, err := conversationFiles(directory)
 	if err != nil {
 		return ConversationScan{}, err
 	}
 	byProject := make(map[string][]synchronization.Document)
 	result := ConversationScan{}
+	var failures []synchronization.ParseFailure
 	for _, path := range files {
+		if watch != nil && watch.ShouldSkip(path) {
+			continue
+		}
 		source, err := os.ReadFile(path)
 		if err != nil {
 			return result, fmt.Errorf("read conversation %q: %w", path, err)
@@ -54,6 +66,10 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 			return result, fmt.Errorf("unsupported conversation provider %q", provider)
 		}
 		if err != nil {
+			if watch != nil && failureProject != "" {
+				failures = append(failures, synchronization.ParseFailure{Path: canonicalPath(path), Message: err.Error()})
+				continue
+			}
 			return result, fmt.Errorf("parse conversation %q: %w", path, err)
 		}
 		result.Warnings = append(result.Warnings, conversation.Warnings...)
@@ -75,6 +91,10 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 		}
 		rendered, err := rendering.Conversation(conversation.Messages)
 		if err != nil {
+			if watch != nil && failureProject != "" {
+				failures = append(failures, synchronization.ParseFailure{Path: canonicalPath(path), Message: err.Error()})
+				continue
+			}
 			return result, err
 		}
 		metadata := map[string]any{
@@ -89,10 +109,18 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 		}
 		normalizedSource, err := json.Marshal(conversation.Messages)
 		if err != nil {
+			if watch != nil && failureProject != "" {
+				failures = append(failures, synchronization.ParseFailure{Path: canonicalPath(path), Message: err.Error()})
+				continue
+			}
 			return result, fmt.Errorf("encode normalized conversation: %w", err)
 		}
 		document, err := makeDocument(provider+":"+conversation.SessionID, conversation.Title, normalizedSource, "conversation", rendered, metadata, provenance, nil)
 		if err != nil {
+			if watch != nil && failureProject != "" {
+				failures = append(failures, synchronization.ParseFailure{Path: canonicalPath(path), Message: err.Error()})
+				continue
+			}
 			return result, err
 		}
 		byProject[project] = append(byProject[project], document)
@@ -105,6 +133,16 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 	for project := range byProject {
 		if _, exists := knownProjects[project]; !exists {
 			projects = append(projects, project)
+			knownProjects[project] = struct{}{}
+		}
+	}
+	if len(failures) > 0 {
+		if failureProject == "" {
+			return result, fmt.Errorf("conversation parse failure requires project or fallback-project")
+		}
+		if _, exists := knownProjects[failureProject]; !exists {
+			projects = append(projects, failureProject)
+			knownProjects[failureProject] = struct{}{}
 		}
 	}
 	sort.Strings(projects)
@@ -117,6 +155,9 @@ func Conversations(provider, directory, sourceInstance string, mappings ProjectM
 		}
 		metadata, _ := json.Marshal(map[string]string{"provider": provider})
 		manifest.Metadata = metadata
+		if project == failureProject {
+			manifest.Failures = failures
+		}
 		if err := manifest.Validate(); err != nil {
 			return result, err
 		}

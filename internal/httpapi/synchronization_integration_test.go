@@ -17,7 +17,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/wyrd-company/lore/internal/browse"
 	"github.com/wyrd-company/lore/internal/database"
+	"github.com/wyrd-company/lore/internal/ingestfailures"
 	"github.com/wyrd-company/lore/internal/synchronization"
 )
 
@@ -80,6 +82,67 @@ func TestProjectBootstrapAndSynchronizationHTTPBoundaryWithPostgres(t *testing.T
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM documents WHERE source_identity = 'rollback'`).Scan(&rolledBack); err != nil || rolledBack != 0 {
 		t.Fatalf("transaction rollback count = %d, err = %v", rolledBack, err)
 	}
+}
+
+func TestIngestionFailureAndBriefingSettingHTTPBoundariesWithPostgres(t *testing.T) {
+	pool := integrationPool(t)
+	server := httptest.NewServer(New(pool, "ingest-secret", "admin-secret"))
+	t.Cleanup(server.Close)
+	doJSON(t, http.MethodPost, server.URL+"/api/projects", "admin-secret", map[string]string{"slug": "lore", "name": "Lore"}, http.StatusCreated, nil)
+
+	note := synchronization.Document{
+		Identity: "welcome", Title: "Welcome", ContentHash: strings.Repeat("a", 64), NormalizedText: "Welcome",
+		RenderedContent: "<p>Welcome</p>", Renderer: "markdown", Provenance: json.RawMessage(`{"path":"/sources/welcome.md"}`),
+	}
+	manifest := synchronization.Manifest{
+		Project: "lore", SourceInstance: "notes", SourceType: "note", Boundary: synchronization.BoundaryComplete,
+		Documents: []synchronization.Document{note}, Failures: []synchronization.ParseFailure{{Path: "/sources/broken.md", Message: "invalid YAML"}},
+	}
+	doJSON(t, http.MethodPost, server.URL+"/api/projects/lore/synchronizations", "ingest-secret", manifest, http.StatusOK, nil)
+	var failureListing struct {
+		Failures []ingestfailures.Record `json:"failures"`
+	}
+	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/ingestion-failures?sourceType=note&sourceInstance=notes", "", nil, http.StatusOK, &failureListing)
+	if len(failureListing.Failures) != 1 || failureListing.Failures[0].Path != "/sources/broken.md" {
+		t.Fatalf("ingestion failures = %#v", failureListing.Failures)
+	}
+	var listing browse.BrowseResponse
+	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/browse", "", nil, http.StatusOK, &listing)
+	if listing.IngestionFailureCount != 1 {
+		t.Fatalf("browse ingestion failure count = %d", listing.IngestionFailureCount)
+	}
+	doJSON(t, http.MethodDelete, server.URL+"/api/projects/lore/ingestion-failures/"+failureListing.Failures[0].ID.String(), "", nil, http.StatusNoContent, nil)
+	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/ingestion-failures", "", nil, http.StatusOK, &failureListing)
+	if len(failureListing.Failures) != 0 {
+		t.Fatalf("removed ingestion failures = %#v", failureListing.Failures)
+	}
+
+	briefingManifest := synchronization.Manifest{
+		Project: "lore", SourceInstance: "briefings", SourceType: "briefing", Boundary: synchronization.BoundaryComplete,
+		Documents: []synchronization.Document{
+			{Identity: "architecture.html", Title: "Architecture", ContentHash: strings.Repeat("b", 64), NormalizedText: "Architecture", RenderedContent: "<h1>Architecture</h1>", Renderer: "briefing"},
+			{Identity: "operations.html", Title: "Operations", ContentHash: strings.Repeat("c", 64), NormalizedText: "Operations", RenderedContent: "<h1>Operations</h1>", Renderer: "briefing"},
+		},
+	}
+	doJSON(t, http.MethodPost, server.URL+"/api/projects/lore/synchronizations", "ingest-secret", briefingManifest, http.StatusOK, nil)
+	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/browse", "", nil, http.StatusOK, &listing)
+	architecture, operations := listing.Briefings[0], listing.Briefings[1]
+	doJSON(t, http.MethodPatch, server.URL+"/api/projects/lore/briefings/"+architecture.ID.String(), "", map[string]any{"category": "Foundations", "home": true}, http.StatusOK, nil)
+	doJSON(t, http.MethodPatch, server.URL+"/api/projects/lore/briefings/"+operations.ID.String(), "", map[string]any{"category": "Operations", "home": true}, http.StatusOK, nil)
+	doJSON(t, http.MethodPatch, server.URL+"/api/projects/lore/briefings/"+noteID(t, pool).String(), "", map[string]any{"home": true}, http.StatusNotFound, nil)
+	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/browse", "", nil, http.StatusOK, &listing)
+	if listing.Briefings[0].BriefingHome || listing.Briefings[0].BriefingCategory != "Foundations" || !listing.Briefings[1].BriefingHome || listing.Briefings[1].BriefingCategory != "Operations" {
+		t.Fatalf("briefing settings = %#v", listing.Briefings)
+	}
+}
+
+func noteID(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := pool.QueryRow(context.Background(), `SELECT id FROM documents WHERE source_type = 'note'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func integrationPool(t *testing.T) *pgxpool.Pool {
