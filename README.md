@@ -242,6 +242,7 @@ the former manual `lore-server migrate` deployment step.
 lore --help
 lore -h
 lore help
+lore help <command> [subcommand]
 lore [--config <credentials.yml>] config
 lore projects create --slug <slug> --name <name>
 lore upload <tasks|notes|briefing|repository|conversations> [flags] <path...>
@@ -253,9 +254,14 @@ lore migrate
 lore version
 ```
 
-Every command and command group accepts `--help` or `-h`. The singular command
-aliases `project`, `annotation`, and `briefing` are equivalent to `projects`,
-`annotations`, and `briefings` respectively.
+Every command and command group accepts `--help` or `-h`. `lore help` also
+navigates to command and subcommand help, for example
+`lore help annotations export` and `lore help upload conversations`. Command
+help documents configuration and environment-variable fallbacks, required
+credentials, output behavior, workflow semantics, and copyable examples. The
+singular command aliases `project`, `annotation`, and `briefing` are equivalent
+to `projects`, `annotations`, and `briefings` respectively; `sync` aliases
+`upload`.
 
 `lore search` resolves its server from the shared client configuration and its
 project from `--project` or `LORE_PROJECT`. It writes the complete search response
