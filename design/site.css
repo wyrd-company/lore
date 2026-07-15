@@ -1216,10 +1216,10 @@ hr {
   color: var(--text-faint);
 }
 
-/* Horizontal scroller — the board scrolls sideways inside THIS box only,
-   so the page body never scrolls horizontally. */
+/* Desktop lanes divide the available board width evenly. Narrow screens switch
+   to a readable horizontal track below. */
 .lore-board-scroll {
-  overflow-x: auto;
+  overflow-x: visible;
   overflow-y: hidden;
   margin: 0 calc(-1 * var(--space-6)); /* bleed to page edges for scroll room */
   padding: var(--space-1) var(--space-6) var(--space-4);
@@ -1229,7 +1229,7 @@ hr {
 
 /* Column track */
 .lore-board {
-  display: flex;
+  display: grid;
   align-items: flex-start;
   gap: var(--space-4);
   min-height: 240px;
@@ -1239,8 +1239,7 @@ hr {
 .lore-col {
   --col-accent: var(--task-status-fallback);
   --col-accent-soft: var(--task-status-fallback-soft);
-  flex: 0 0 300px;
-  width: 300px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 220px);
@@ -1308,19 +1307,6 @@ hr {
   color: var(--text-faint);
 }
 
-/* Collapsed lane (archived by default): slim vertical rail */
-.lore-col.is-collapsed {
-  flex-basis: 44px; width: 44px;
-  cursor: pointer;
-}
-.lore-col.is-collapsed .lore-col__body { display: none; }
-.lore-col.is-collapsed .lore-col__head {
-  flex-direction: column; gap: var(--space-2);
-  height: 100%; padding: var(--space-3) 0;
-}
-.lore-col.is-collapsed .lore-col__label {
-  writing-mode: vertical-rl; transform: rotate(180deg);
-}
 
 /* --- Task card (a link; explicitly NOT draggable) -------------------- */
 .lore-task-card {
@@ -1396,8 +1382,8 @@ hr {
 /* Narrow screens: board list-first. Columns stay legible via horizontal scroll;
    the implementation defaults the toggle to List under ~640px. */
 @media (max-width: 640px) {
-  .lore-board-scroll { margin: 0 calc(-1 * var(--space-5)); padding-inline: var(--space-5); }
-  .lore-col { flex-basis: 82vw; width: 82vw; max-width: 300px; }
+  .lore-board-scroll { overflow-x: auto; margin: 0 calc(-1 * var(--space-5)); padding-inline: var(--space-5); }
+  .lore-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 82vw); grid-template-columns: none !important; }
 }
 
 /* ==========================================================================

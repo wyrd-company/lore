@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import { PageError, PageLoading, useAttribution, useProject } from "./app";
+import { BriefingViewToggle } from "./browse";
 import type { Annotation, DocumentDetail, DocumentSummary, Json, RevisionSummary } from "./types";
 import { taskStatusKey } from "./task-board";
 import { linkTaxonomyText } from "./taxonomy";
@@ -11,7 +12,7 @@ type DraftTarget = { selector: Json; selectedQuote?: string; quotePrefix?: strin
 
 export function DocumentPage({ section }: { section: "tasks" | "notes" | "terms" | "briefings" | "repo" | "conversations" }) {
   const { project = "", id, taskId, termName, repo, branch, "*": path } = useParams();
-  const { browse, loading: browseLoading } = useProject();
+  const { browse, loading: browseLoading, reload: reloadBrowse } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -61,10 +62,12 @@ export function DocumentPage({ section }: { section: "tasks" | "notes" | "terms"
     <nav className="lore-crumbs" aria-label="Breadcrumb"><Link to={`/${project}`}>{browse?.project.name}</Link><span className="lore-crumbs__sep">/</span><Link to={`/${project}/${section}`}>{sectionLabel(section)}</Link><span className="lore-crumbs__sep">/</span><span>{title}</span></nav>
     <header className="lore-page-head"><div className="lore-page-head__row"><div><div className="lore-page-head__title-row"><span className="lore-source-badge" data-type={sourceBadgeType(detail.sourceType)}>{section === "terms" ? "Term" : sourceLabel(detail.sourceType)}</span>{detail.sourceType === "task" && <span className="task-number">#{detail.sourceIdentity}</span>}<h1 className="lore-page-head__title">{title}</h1>{detail.sourceType === "task" && <span className="lore-status" data-state={jsonString(metadata.status) ?? "todo"}>{jsonString(metadata.status) ?? "todo"}</span>}</div></div><div className="lore-page-head__actions">
       {detail.sourceType === "task" && <button className={`lore-btn lore-btn--ghost lore-btn--icon task-title-target lore-anno-target ${titleAnnotation?.id === searchParams.get("anno") ? "is-active" : ""}`} data-state={titleAnnotation?.status} aria-label="Annotate task title" onClick={() => setDraftTarget({ selector: { kind: "task-field", field: "title" }, structuralLocation: { taskField: "title" } })}>＋</button>}
+      {detail.sourceType === "briefing" && <BriefingViewToggle home={browse?.briefings.find((item) => item.briefingHome)} project={project} view={document.briefingHome ? "home" : undefined} />}
       {retained.length > 0 && <label className="lore-revision"><span className="lore-revision__dot" /><span className="lore-visually-hidden">Revision</span><select aria-label="Revision" value={detail.contentHash} onChange={(event) => switchRevision(event.target.value)}><option value={currentHash}>Current</option>{retained.map((revision) => <option value={revision.contentHash} key={revision.id}>{shortHash(revision.contentHash)} · {new Date(revision.createdAt).toLocaleDateString()} · {revision.annotationCount} annotations</option>)}</select></label>}
       <button className="lore-btn lore-btn--secondary lore-btn--sm" onClick={copyLink}>Copy link</button>
     </div></div>
     <div className="lore-provenance"><span className="lore-provenance__item">{detail.sourceInstance}</span>{provenanceItems(detail).map((item) => <span className="lore-provenance__item" key={item}>{item}</span>)}<span className="lore-provenance__item lore-mono">{shortHash(detail.contentHash)}</span><span className="lore-provenance__item">Synced {relativeTime(detail.updatedAt)}</span></div>
+    {detail.sourceType === "briefing" && <BriefingSettings project={project} document={document} reload={reloadBrowse} onMessage={(message) => { setToast(message); setTimeout(() => setToast(""), 1800); }} />}
     {isPrior && <p className="search-warning">◉ Retained revision. You are reading the immutable content that received these annotations.</p>}
     </header>
     {detail.sourceType === "task" && <TaskMetadata detail={detail} project={project} annotations={annotations.filter((item) => item.revisionIdentity === detail.revisionId)} activeId={searchParams.get("anno") ?? ""} onTarget={setDraftTarget} />}
@@ -131,8 +134,46 @@ function DocumentLinks({ project, documents }: { project: string; documents: Doc
   return <div className="lore-list">{documents.map((document) => <Link className="lore-row" to={documentHref(project, document)} key={document.id}><span className="lore-source-badge" data-type={sourceBadgeType(document.sourceType)}>{sourceLabel(document.sourceType)}</span><span className="lore-row__title">{document.title}</span><span aria-hidden="true">›</span></Link>)}</div>;
 }
 
+function BriefingSettings({ project, document, reload, onMessage }: { project: string; document: DocumentSummary; reload: () => void; onMessage: (message: string) => void }) {
+  const [category, setCategory] = useState(document.briefingCategory ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => setCategory(document.briefingCategory ?? ""), [document.id, document.briefingCategory]);
+  const update = async (body: { category?: string; home?: boolean }, message: string) => {
+    setSaving(true); setError("");
+    try { await api.updateBriefing(project, document.id, body); reload(); onMessage(message); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Briefing setting update failed."); }
+    finally { setSaving(false); }
+  };
+  const normalizedCategory = category.trim();
+  const categoryChanged = normalizedCategory !== (document.briefingCategory ?? "");
+  return <div className="briefing-settings" aria-label="Briefing settings">
+    <label><span>Category</span><input className="lore-input" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Uncategorized" onKeyDown={(event) => { if (event.key === "Enter" && categoryChanged) update({ category: normalizedCategory }, "Category saved"); }} /></label>
+    <button className="lore-btn lore-btn--secondary lore-btn--sm" disabled={saving || !categoryChanged} onClick={() => update({ category: normalizedCategory }, "Category saved")}>Save category</button>
+    <button className="lore-btn lore-btn--ghost lore-btn--sm" aria-pressed={Boolean(document.briefingHome)} disabled={saving} onClick={() => update({ home: !document.briefingHome }, document.briefingHome ? "Home briefing cleared" : "Home briefing set")}>{document.briefingHome ? "Clear home" : "Set as home"}</button>
+    {error && <span className="briefing-settings__error" role="alert">{error}</span>}
+  </div>;
+}
+
 function BriefSidebar({ project, current, documents }: { project: string; current: string; documents: DocumentSummary[] }) {
-  return <aside className="brief-sidebar" aria-label="Other briefings"><div className="task-facet-label">Briefings</div><nav>{documents.map((document) => <Link className={document.id === current ? "is-active" : ""} aria-current={document.id === current ? "page" : undefined} to={documentHref(project, document)} key={document.id}>{document.title}</Link>)}</nav></aside>;
+  const grouped = documents.reduce((result, document) => {
+    const category = document.briefingCategory?.trim() || "Uncategorized";
+    result.set(category, [...(result.get(category) ?? []), document]);
+    return result;
+  }, new Map<string, DocumentSummary[]>());
+  const groups = [...grouped]
+    .sort(([left], [right]) => left.localeCompare(right));
+  return <aside className="brief-sidebar" aria-label="Other briefings"><div className="task-facet-label">Briefings</div><nav>{groups.map(([category, categoryDocuments]) => <BriefCategory category={category} current={current} documents={categoryDocuments} project={project} key={category} />)}</nav></aside>;
+}
+
+function BriefCategory({ category, current, documents, project }: { category: string; current: string; documents: DocumentSummary[]; project: string }) {
+  const containsCurrent = documents.some((document) => document.id === current);
+  const [open, setOpen] = useState(containsCurrent);
+  useEffect(() => { if (containsCurrent) setOpen(true); }, [containsCurrent]);
+  return <details className="brief-category" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary><span>{category}</span><span>{documents.length}</span></summary>
+    <div>{[...documents].sort((left, right) => left.title.localeCompare(right.title)).map((document) => <Link className={document.id === current ? "is-active" : ""} aria-current={document.id === current ? "page" : undefined} to={documentHref(project, document)} key={document.id}>{document.briefingHome && <span className="brief-home-mark" aria-label="Home briefing">⌂</span>}{document.title}</Link>)}</div>
+  </details>;
 }
 
 function TermsFooter({ project, terms }: { project: string; terms: DocumentDetail["terms"] }) {

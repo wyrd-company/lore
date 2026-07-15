@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageError, PageLoading, useProject } from "./app";
 import type { DocumentSummary, SourceType } from "./types";
 import { documentHref, jsonString, sourceBadgeType, sourceLabel } from "./utils";
@@ -28,10 +28,9 @@ export function OverviewPage() {
   </div>;
 }
 
-type SourceSection = "notes" | "briefings" | "conversations";
+type SourceSection = "notes" | "conversations";
 const listConfig: Record<SourceSection, { title: string; hint: string; type: SourceType }> = {
   notes: { title: "Notes", hint: "Upload a Mnemonic notes directory with lore upload notes.", type: "note" },
-  briefings: { title: "Briefings", hint: "Upload trusted HTML with lore upload briefing.", type: "briefing" },
   conversations: { title: "Conversations", hint: "Upload Claude or Codex sessions with lore upload conversations.", type: "conversation" },
 };
 
@@ -69,6 +68,35 @@ export function SourceIndexPage({ section }: { section: SourceSection }) {
     <div className="section-tools"><input className="lore-input" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={`Filter ${config.title.toLowerCase()}…`} aria-label={`Filter ${config.title.toLowerCase()}`} />{section === "notes" && <label>Sort <select className="lore-select" value={params.get("sort") ?? "updatedAt"} onChange={(event) => { const next = new URLSearchParams(params); next.set("sort", event.target.value); setParams(next, { replace: true }); }}><option value="updatedAt">Updated</option><option value="createdAt">Created</option><option value="title">Title</option></select></label>}</div>
     {section === "notes" && documents && <NoteFacets documents={documents} params={params} toggle={toggleNoteFacet} />}
     {filtered.length ? <DocumentList documents={filtered} project={project} /> : <EmptyState section={config.title.toLowerCase()} hint={config.hint} />}
+  </div>;
+}
+
+export function BriefingsPage() {
+  const { project = "" } = useParams();
+  const { browse, loading, error, reload } = useProject();
+  const [params, setParams] = useSearchParams();
+  if (loading) return <PageLoading />;
+  if (error || !browse) return <PageError message={error ?? "Briefings unavailable."} retry={reload} />;
+  const home = browse.briefings.find((document) => document.briefingHome);
+  const requestedView = params.get("view");
+  if (home && requestedView !== "list") return <Navigate replace to={documentHref(project, home)} />;
+  return <div className="l-page">
+    <div className="lore-page-head">
+      <div className="lore-page-head__row">
+        <div><span className="page-kicker">Briefing</span><h1 className="lore-page-head__title">Briefings</h1></div>
+        <BriefingViewToggle home={home} project={project} view="list" onList={() => { const next = new URLSearchParams(params); next.set("view", "list"); setParams(next, { replace: true }); }} />
+      </div>
+      <p className="lore-muted">{browse.briefings.length} documents in {browse.project.name}</p>
+    </div>
+    {browse.briefings.length ? <DocumentList documents={browse.briefings} project={project} /> : <EmptyState section="briefings" hint="Upload trusted HTML with lore upload briefing." />}
+  </div>;
+}
+
+export function BriefingViewToggle({ home, project, view, onList }: { home?: DocumentSummary; project: string; view?: "home" | "list"; onList?: () => void }) {
+  const navigate = useNavigate();
+  return <div className="lore-segmented briefing-view-toggle" role="group" aria-label="Briefings view">
+    <button type="button" aria-pressed={view === "home"} disabled={!home} title={home ? `Open ${home.title}` : "No home briefing is set"} onClick={() => home && navigate(documentHref(project, home))}>Home</button>
+    <button type="button" aria-pressed={view === "list"} onClick={() => onList ? onList() : navigate(`/${project}/briefings?view=list`)}>List</button>
   </div>;
 }
 
@@ -128,9 +156,13 @@ function compareNotes(left: DocumentSummary, right: DocumentSummary, sort: strin
 function DocumentList({ documents, project }: { documents: DocumentSummary[]; project: string }) {
   return <div className="lore-list">{documents.map((document) => <Link className="lore-row" to={documentHref(project, document)} key={document.id}>
     <span className="lore-source-badge" data-type={sourceBadgeType(document.sourceType)}>{sourceLabel(document.sourceType)}</span>
-    <span><span className="lore-row__title">{document.title}</span><span className="lore-row__meta"><span>{document.sourceInstance}</span>{jsonString(document.metadata.status) && <span>{jsonString(document.metadata.status)}</span>}<span>{new Date(document.updatedAt).toLocaleDateString()}</span></span></span>
+    <span><span className="lore-row__title">{document.title}</span><span className="lore-row__meta"><span>{document.sourceInstance}</span>{jsonString(document.metadata.status) && <span>{jsonString(document.metadata.status)}</span>}<time dateTime={displayUpdatedAt(document)}>{new Date(displayUpdatedAt(document)).toLocaleDateString()}</time></span></span>
     <span className="row-tail">{document.tags.slice(0, 3).map((tag) => <span className="lore-chip lore-chip--tag" key={tag}>{tag}</span>)}<span aria-hidden="true">›</span></span>
   </Link>)}</div>;
+}
+
+export function displayUpdatedAt(document: DocumentSummary): string {
+  return document.sourceType === "note" ? jsonString(document.metadata.updatedAt) ?? document.updatedAt : document.updatedAt;
 }
 
 export function EmptyState({ section, hint }: { section: string; hint?: string }) {

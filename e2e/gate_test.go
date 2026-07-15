@@ -50,6 +50,11 @@ func TestPrepareGate(t *testing.T) {
 	defer pool.Close()
 	work := requiredEnv(t, "LORE_E2E_WORKDIR")
 	fixtures := filepath.Join(work, "fixtures")
+	architectureFixture := filepath.Join(fixtures, "briefing", "architecture.html")
+	operationsFixture := filepath.Join(fixtures, "briefing", "operations.html")
+	operationsBody := bytes.ReplaceAll(mustRead(t, architectureFixture), []byte("Architecture"), []byte("Operations"))
+	operationsBody = bytes.ReplaceAll(operationsBody, []byte("architecture"), []byte("operations"))
+	mustWrite(t, operationsFixture, operationsBody)
 
 	runLore(t, ctx, "projects", "create", "--slug", primaryProject, "--name", "Lore E2E archive", "--server", baseURL(), "--token", adminToken)
 	runLore(t, ctx, "projects", "create", "--slug", isolatedProject, "--name", "Isolated archive", "--server", baseURL(), "--token", adminToken)
@@ -67,7 +72,8 @@ func TestPrepareGate(t *testing.T) {
 	uploads := [][]string{
 		{"upload", "tasks", "--project", primaryProject, "--source-instance", "kanban", "--complete", "--server", baseURL(), "--token", ingestToken, filepath.Join(fixtures, "kanban")},
 		{"upload", "notes", "--project", primaryProject, "--source-instance", "mnemonic", "--complete", "--server", baseURL(), "--token", ingestToken, filepath.Join(fixtures, "notes")},
-		{"upload", "briefing", "--project", primaryProject, "--source-instance", "architecture", "--complete", "--server", baseURL(), "--token", ingestToken, filepath.Join(fixtures, "briefing", "architecture.html")},
+		{"upload", "briefing", "--project", primaryProject, "--source-instance", "architecture", "--complete", "--server", baseURL(), "--token", ingestToken, architectureFixture},
+		{"upload", "briefing", "--project", primaryProject, "--source-instance", "operations", "--complete", "--server", baseURL(), "--token", ingestToken, operationsFixture},
 		{"upload", "repository", "--project", primaryProject, "--source-instance", "git-fixture", "--complete", "--server", baseURL(), "--token", ingestToken, repo},
 		{"upload", "conversations", "--source-instance", "claude", "--provider", "claude", "--mapping", mapping, "--complete", "--server", baseURL(), "--token", ingestToken, filepath.Join(fixtures, "conversations", "claude")},
 		{"upload", "conversations", "--source-instance", "codex", "--provider", "codex", "--mapping", mapping, "--complete", "--server", baseURL(), "--token", ingestToken, filepath.Join(fixtures, "conversations", "codex")},
@@ -254,7 +260,15 @@ func testWatch(t *testing.T, ctx context.Context, work string) {
 	path := filepath.Join(dir, "watched.md")
 	mustWrite(t, path, []byte("---\ntitle: Watched note\n---\nStartup projection.\n"))
 	runWatchPhase(t, ctx, work, dir, "50ms", "1h", "fsnotify live change", 4*time.Second)
+	brokenPath := filepath.Join(dir, "broken.md")
+	mustWrite(t, brokenPath, []byte("---\ntitle: Retryable watcher note\n---\nThe corrected file remains quarantined until its issue is cleared.\n"))
 	runWatchPhase(t, ctx, work, dir, "5s", "250ms", "periodic rescan recovery", 4*time.Second)
+	if documentText("Retryable watcher note", "corrected file") {
+		t.Fatal("watcher retried a quarantined file before its issue was cleared")
+	}
+	if !hasWatcherFailure("broken.md") {
+		t.Fatal("watcher parse failure did not remain available for UI retry")
+	}
 }
 
 func runWatchPhase(t *testing.T, ctx context.Context, work, dir, debounce, rescan, phrase string, deadline time.Duration) {
@@ -277,6 +291,10 @@ func runWatchPhase(t *testing.T, ctx context.Context, work, dir, debounce, resca
 	waitUntil(t, deadline, func() bool { return documentText("Watched note", phrase) })
 	if debounce == "5s" && time.Since(started) >= 5*time.Second {
 		t.Fatal("watch update did not arrive through periodic rescan before debounce")
+	}
+	if debounce == "50ms" {
+		mustWrite(t, filepath.Join(dir, "broken.md"), []byte("---\ntitle: [unterminated\n---\nMalformed front matter.\n"))
+		waitUntil(t, 4*time.Second, func() bool { return hasWatcherFailure("broken.md") })
 	}
 }
 
@@ -344,7 +362,7 @@ func waitForEmbeddings(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 
 func assertSourceCounts(t *testing.T, listing browse.BrowseResponse) {
 	t.Helper()
-	if len(listing.Tasks) != 2 || len(listing.Notes) != 2 || len(listing.Briefings) != 1 || len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 3 || len(listing.Conversations) != 2 || len(listing.Terms) != 2 {
+	if len(listing.Tasks) != 2 || len(listing.Notes) != 2 || len(listing.Briefings) != 2 || len(listing.Repositories) != 1 || len(listing.Repositories[0].Documents) != 3 || len(listing.Conversations) != 2 || len(listing.Terms) != 2 {
 		t.Fatalf("real source browse counts = tasks %d notes %d briefings %d repository %d conversations %d", len(listing.Tasks), len(listing.Notes), len(listing.Briefings), len(listing.Repositories[0].Documents), len(listing.Conversations))
 	}
 }
@@ -366,6 +384,23 @@ func documentText(title, phrase string) bool {
 		}
 		var detail browse.DocumentDetail
 		return getJSONStatus(fmt.Sprintf("%s/api/projects/%s/documents/%s", baseURL(), primaryProject, summary.ID), &detail) == http.StatusOK && strings.Contains(detail.NormalizedText, phrase)
+	}
+	return false
+}
+
+func hasWatcherFailure(filename string) bool {
+	var listing struct {
+		Failures []struct {
+			Path string `json:"path"`
+		} `json:"failures"`
+	}
+	if status := getJSONStatus(baseURL()+"/api/projects/"+primaryProject+"/ingestion-failures", &listing); status != http.StatusOK {
+		return false
+	}
+	for _, failure := range listing.Failures {
+		if filepath.Base(failure.Path) == filename {
+			return true
+		}
 	}
 	return false
 }

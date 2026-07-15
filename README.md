@@ -503,8 +503,15 @@ instructions, tool traffic, and provider bookkeeping are excluded.
 ## Continuous synchronization
 
 `lore watch` performs a complete scan at startup, debounces filesystem events,
-and periodically runs another complete scan to recover missed events. Each
-source retries independently with bounded exponential backoff.
+and periodically runs another complete scan to recover missed events. It supports
+the tasks, notes, briefing, repository, and conversations adapters. Each source
+retries independently with bounded exponential backoff.
+
+If one watched file cannot be parsed, Lore records its absolute path and parser
+message as a project Watcher issue. The watcher skips that quarantined path while
+healthy siblings continue synchronizing and preserves its last valid projection.
+After fixing the file, choose **Retry** in the Watcher issues view. The next
+filesystem event or rescan attempts the path again.
 
 The concise design layout is supported directly:
 

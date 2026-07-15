@@ -1,4 +1,4 @@
-import type { Annotation, BrowseResponse, DocumentDetail, ProjectSummary, RevisionDetail, SearchResponse } from "./types";
+import type { Annotation, BriefingSetting, BrowseResponse, DocumentDetail, IngestionFailure, ProjectSummary, RevisionDetail, SearchResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -24,8 +24,16 @@ export const api = {
   document: (project: string, id: string) => request<DocumentDetail>(`${projectPath(project)}/documents/${id}`),
   revision: (project: string, documentId: string, revisionId: string) => request<RevisionDetail>(`${projectPath(project)}/documents/${documentId}/revisions/${revisionId}`),
   search: (project: string, params: URLSearchParams) => request<SearchResponse>(`${projectPath(project)}/search?${params}`),
-  annotations: async (project: string, documentId: string) => (await request<{ annotations: Annotation[] }>(`${projectPath(project)}/annotations?documentId=${documentId}`)).annotations,
+  annotations: async (project: string, documentId?: string) => {
+    const query = new URLSearchParams();
+    if (documentId) query.set("documentId", documentId);
+    const suffix = query.size ? `?${query}` : "";
+    return (await request<{ annotations: Annotation[] }>(`${projectPath(project)}/annotations${suffix}`)).annotations;
+  },
   createAnnotation: (project: string, body: unknown) => request<Annotation>(`${projectPath(project)}/annotations`, { method: "POST", body: JSON.stringify(body) }),
   updateAnnotation: (project: string, id: string, body: unknown) => request<Annotation>(`${projectPath(project)}/annotations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   retargetAnnotation: (project: string, id: string, operation: "copy" | "move", body: unknown) => request<Annotation>(`${projectPath(project)}/annotations/${id}/${operation}`, { method: "POST", body: JSON.stringify(body) }),
+  ingestionFailures: async (project: string) => (await request<{ failures: IngestionFailure[] }>(`${projectPath(project)}/ingestion-failures`)).failures,
+  retryIngestionFailure: (project: string, id: string) => request<void>(`${projectPath(project)}/ingestion-failures/${id}`, { method: "DELETE" }),
+  updateBriefing: (project: string, id: string, body: { category?: string; home?: boolean }) => request<BriefingSetting>(`${projectPath(project)}/briefings/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 };

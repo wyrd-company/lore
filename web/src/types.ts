@@ -25,6 +25,8 @@ export interface DocumentSummary {
   dependencyCount: number;
   dependentCount: number;
   openAnnotationCount: number;
+  briefingCategory?: string;
+  briefingHome?: boolean;
 }
 
 export type SourceType = "task" | "note" | "briefing" | "repository" | "conversation";
@@ -60,6 +62,8 @@ export interface BrowseResponse {
   briefings: DocumentSummary[];
   repositories: RepositoryGroup[];
   conversations: DocumentSummary[];
+  annotationCount: number;
+  ingestionFailureCount: number;
 }
 
 export interface RevisionSummary {
@@ -132,6 +136,24 @@ export interface Annotation {
   resolvedBy?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface IngestionFailure {
+  id: string;
+  projectId: string;
+  sourceType: SourceType;
+  sourceInstance: string;
+  path: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BriefingSetting {
+  documentId: string;
+  category: string;
+  home: boolean;
+  updatedAt?: string;
 }
 
 export interface SearchResponse {

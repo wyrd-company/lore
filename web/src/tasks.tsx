@@ -13,7 +13,6 @@ export function TasksPage() {
   const { browse, loading, error, reload } = useProject();
   const [params, setParams] = useSearchParams();
   const narrow = useNarrowScreen();
-  const [archivedExpanded, setArchivedExpanded] = useState(false);
   const tasks = browse?.tasks ?? [];
   const lanes = useMemo(() => orderedTaskLanes([
     ...(browse?.taskStatuses ?? []),
@@ -51,7 +50,7 @@ export function TasksPage() {
     {tasks.length === 0 ? <TasksEmpty /> : <>
       <TasksToolbar tasks={tasks} lanes={lanes} params={params} view={view} onFacet={toggleFacet} onView={setView} />
       {view === "board"
-        ? <TaskBoard tasks={filtered} lanes={lanes} project={project} archivedExpanded={archivedExpanded} onArchivedToggle={() => setArchivedExpanded((value) => !value)} />
+        ? <TaskBoard tasks={filtered} lanes={lanes} project={project} />
         : <TaskList tasks={filtered} project={project} />}
     </>}
   </div>;
@@ -81,21 +80,17 @@ function TasksToolbar({ tasks, lanes, params, view, onFacet, onView }: {
   </div>;
 }
 
-function TaskBoard({ tasks, lanes, project, archivedExpanded, onArchivedToggle }: {
+function TaskBoard({ tasks, lanes, project }: {
   tasks: DocumentSummary[];
   lanes: TaskLane[];
   project: string;
-  archivedExpanded: boolean;
-  onArchivedToggle: () => void;
 }) {
   return <div className="lore-board-scroll" tabIndex={0} aria-label="Tasks board">
-    <div className="lore-board">{lanes.map((lane) => {
+    <div className="lore-board" style={{ gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))` }}>{lanes.map((lane) => {
       const laneTasks = tasks.filter((task) => taskStatusKey(taskStatus(task)) === lane.key);
-      const archived = lane.key === "archived";
-      const collapsed = archived && !archivedExpanded;
       const head = <><span className="lore-col__swatch" aria-hidden="true" /><span className="lore-col__label">{lane.label}</span><span className="lore-col__count">{laneTasks.length}</span></>;
-      return <section className={`lore-col${collapsed ? " is-collapsed" : ""}`} data-status={lane.key} aria-label={`${lane.label}: ${laneTasks.length} tasks`} key={lane.key}>
-        {archived ? <button type="button" className="lore-col__head" aria-expanded={!collapsed} onClick={onArchivedToggle}>{head}</button> : <div className="lore-col__head">{head}</div>}
+      return <section className="lore-col" data-status={lane.key} aria-label={`${lane.label}: ${laneTasks.length} tasks`} key={lane.key}>
+        <div className="lore-col__head">{head}</div>
         <div className="lore-col__body">{laneTasks.length ? laneTasks.map((task) => <TaskCard task={task} project={project} key={task.id} />) : <div className="lore-col__empty">Nothing here</div>}</div>
       </section>;
     })}</div>
@@ -129,7 +124,7 @@ function TaskList({ tasks, project }: { tasks: DocumentSummary[]; project: strin
 }
 
 function TasksLoading() {
-  return <div className="l-page"><div className="lore-skel lore-skel--title" /><div className="lore-board-scroll"><div className="lore-board">{[0, 1, 2].map((column) => <div className="lore-col" key={column}><div className="lore-col__head"><span className="lore-skel lore-skel--line" /></div><div className="lore-col__body"><div className="lore-skel lore-skel--block" /><div className="lore-skel lore-skel--block" /></div></div>)}</div></div></div>;
+  return <div className="l-page"><div className="lore-skel lore-skel--title" /><div className="lore-board-scroll"><div className="lore-board" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>{[0, 1, 2].map((column) => <div className="lore-col" key={column}><div className="lore-col__head"><span className="lore-skel lore-skel--line" /></div><div className="lore-col__body"><div className="lore-skel lore-skel--block" /><div className="lore-skel lore-skel--block" /></div></div>)}</div></div></div>;
 }
 
 function TasksEmpty() {

@@ -14,8 +14,11 @@ interface ProjectContextValue {
 const ProjectContext = createContext<ProjectContextValue>({ projects: [], loading: true, reload: () => undefined });
 export const useProject = () => useContext(ProjectContext);
 
-const navItems = [
+const projectNavItems = [
   ["Overview", "", "⌂", undefined], ["Search", "search", "⌕", undefined],
+  ["Annotations", "annotations", "✎", "annotation"], ["Watcher issues", "watcher-issues", "!", "failure"],
+] as const;
+const sourceNavItems = [
   ["Tasks", "tasks", "□", "task"], ["Notes", "notes", "◇", "note"],
   ["Terms", "terms", "T", undefined],
   ["Briefings", "briefings", "▱", "briefing"], ["Repository", "repo", "⌘", "repository"],
@@ -123,10 +126,10 @@ export function App() {
       <aside className="l-sidebar" aria-label="Project knowledge">
         <nav>
           <div className="l-nav-section"><div className="l-nav-section__label">Project archive</div>
-            {navItems.slice(0, 2).map(([label, path, icon]) => <NavLink end={path === ""} className="l-nav-item" key={label} to={`/${project}${path ? `/${path}` : ""}`}><span className="l-nav-item__icon">{icon}</span>{label}</NavLink>)}
+            {projectNavItems.map(([label, path, icon, countType]) => <NavLink end={path === ""} className="l-nav-item" key={label} to={`/${project}${path ? `/${path}` : ""}`}><span className="l-nav-item__icon">{icon}</span>{label}{countType && <span className="l-nav-item__count">{countType === "annotation" ? browse?.annotationCount ?? 0 : browse?.ingestionFailureCount ?? 0}</span>}</NavLink>)}
           </div>
           <div className="l-nav-section"><div className="l-nav-section__label">Sources</div>
-            {navItems.slice(2).map(([label, path, icon, type]) => <NavLink className="l-nav-item" key={label} to={`/${project}/${path}`}><span className="l-nav-item__icon">{icon}</span>{label}<span className="l-nav-item__count">{type ? counts[type] ?? 0 : browse?.terms.filter((term) => term.defined).length ?? 0}</span></NavLink>)}
+            {sourceNavItems.map(([label, path, icon, type]) => <NavLink className="l-nav-item" key={label} to={`/${project}/${path}`}><span className="l-nav-item__icon">{icon}</span>{label}<span className="l-nav-item__count">{type ? counts[type] ?? 0 : browse?.terms.filter((term) => term.defined).length ?? 0}</span></NavLink>)}
           </div>
         </nav>
       </aside>

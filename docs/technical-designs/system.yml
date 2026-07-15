@@ -127,10 +127,17 @@ proposed-design:
       periodically performs a complete rescan to recover missed filesystem events.
 
     Watch configuration associates each mounted directory with a project, source
-    instance, and source adapter. Task and Mnemonic note directories are the standard
-    continuously watched sources. The same adapter commands remain available for
-    ad-hoc use. Watch retries use bounded exponential backoff while continuing to
-    observe subsequent filesystem changes.
+    instance, and source adapter. Task, note, briefing, repository, and conversation
+    adapters can be watched. The same adapter commands remain available for ad-hoc
+    use. Watch retries use bounded exponential backoff while continuing to observe
+    subsequent filesystem changes.
+
+    When a watched source file cannot be parsed, its absolute path and parser error
+    are stored against the project and source instance. The watcher omits that path,
+    synchronizes healthy siblings, and protects the path's last valid projection from
+    complete-manifest deletion. A quarantined path remains skipped until a viewer
+    deletes its watcher issue. The next filesystem event or complete rescan then
+    retries the path.
   source-layout: |-
     Host directories are mounted into watcher containers at project-scoped paths.
     Example configuration:
@@ -173,6 +180,13 @@ proposed-design:
     the body HTML and extracts its visible text, headings, and element identities for
     indexing and annotations. The upload filename supplies the title unless the
     upload command supplies one explicitly.
+
+    Briefing category and home selection are project presentation settings stored in
+    Lore rather than authored source metadata. At most one active briefing is the
+    project home. When set, the briefing area opens it by default; viewers can switch
+    to the complete list. Briefing side navigation groups documents by category in
+    collapsible panels and places uncategorized documents in an explicit fallback
+    group.
 
     The `lore` executable embeds the `site.css` that corresponds to its release and an
     authoring skill that instructs agents how to create conforming briefings. Commands
@@ -260,6 +274,10 @@ proposed-design:
     attribution name in local storage and supplies it with annotation mutations. This
     name is attribution rather than authenticated identity.
 
+    A project annotation index lists annotations across every current and retained
+    document and filters the collection by annotation status. Active document targets
+    deep-link to the selected annotation.
+
     Target selectors use source-specific stable identities where available, such as
     task fields, YAML property paths, HTML element identifiers, heading paths, and
     conversation message identifiers. Text annotations also retain the selected quote
@@ -295,12 +313,17 @@ proposed-design:
     with source and metadata filters. Repository browsing filters by repository,
     normalized tag, and the final `$schema` path element. Note browsing filters by
     role, tag, lifecycle, and source project name and sorts by source creation time,
-    source update time, or title. Task pages link dependencies and dependents, and
-    note pages link related notes.
+    source update time, or title. Note list rows display the source-authored update
+    time when present. The task board divides its desktop width equally among the
+    source status vocabulary while retaining horizontally scrollable readable lanes
+    on narrow screens. Task pages link dependencies and dependents, and note pages
+    link related notes.
     Conversation pages distinguish user and assistant messages and place thinking in
     collapsed disclosure regions. Briefings render their stored body within the normal
     application shell using `site.css` and expose contextual navigation to the other
-    project briefings. Visible document text matching a normalized project tag or term
+    project briefings grouped into collapsible category panels. A selected home
+    briefing replaces the default briefing list while a Home/List control preserves
+    access to both views. Visible document text matching a normalized project tag or term
     is linked to tag-filtered search or the canonical term page. Each document with
     term references ends with links to their definition or missing-definition page.
   access-and-credentials: |-
@@ -310,7 +333,8 @@ proposed-design:
     viewing and annotation attribution do not depend on an application account system.
   api-boundaries: |-
     The HTTP API separates browse/search operations, annotation mutations and exports,
-    and source synchronization. Every operation validates its project boundary.
+    watcher-issue retry, briefing presentation settings, and source synchronization.
+    Every operation validates its project boundary.
     Synchronization credentials authorize ingestion; administrative credentials
     authorize cleanup and project configuration. Annotation operations record the
     supplied browser attribution name.

@@ -404,6 +404,12 @@ The watcher performs a complete scan at startup, debounces filesystem events,
 and periodically performs another complete scan. Each source needs a stable
 source-instance; concise mappings default it to the adapter name.
 
+Supported adapters are tasks, notes, briefing, repository, and conversations.
+A malformed source file is recorded as a watcher issue and skipped while healthy
+siblings continue synchronizing. Fix the file, open Watcher issues in the web
+interface, and choose Retry to clear its quarantine. The next event or rescan
+attempts that path again; merely editing a quarantined path does not clear it.
+
 Example:
   lore --config credentials.yml watch --config watch.yml
 

@@ -39,10 +39,16 @@ features:
     Keeps replaced document revisions while they contain open annotations and makes
     completed prior revisions eligible for cleanup.
   synchronize-local-sources: >-
-    Uploads sources on demand or watches mounted task and note directories for
-    changes using the same command-line application.
+    Uploads sources on demand or watches configured source paths for changes using
+    the same command-line application.
+  retry-malformed-sources: >-
+    Quarantines malformed watched files without interrupting healthy siblings and
+    lets viewers clear individual watcher issues after correcting the source.
   export-project-annotations: >-
     Downloads annotations for one project through the command-line application.
   guide-briefing-authors: >-
     Exposes the site's stylesheet and an embedded briefing-authoring skill through
     discoverable command-line commands.
+  organize-briefings: >-
+    Selects a project home briefing and groups briefing navigation by collapsible
+    project-defined categories.

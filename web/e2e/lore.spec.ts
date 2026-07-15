@@ -8,9 +8,8 @@ test("validates the complete archive journey with real services", async ({ page 
   await page.getByRole("link", { name: /Tasks 2/ }).click();
   await expect(page.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".lore-col__label")).toHaveText(["Backlog", "In Progress", "Done", "Ready for deploy", "Archived"]);
-  await expect(page.locator('.lore-col[data-status="archived"]')).toHaveClass(/is-collapsed/);
-  await page.locator('.lore-col[data-status="archived"] .lore-col__head').click();
-  await expect(page.locator('.lore-col[data-status="archived"]')).not.toHaveClass(/is-collapsed/);
+  const laneWidths = await page.locator(".lore-col").evaluateAll((lanes) => lanes.map((lane) => lane.getBoundingClientRect().width));
+  expect(Math.max(...laneWidths) - Math.min(...laneWidths)).toBeLessThanOrEqual(1);
 
   const foundationCard = page.locator(".lore-task-card").filter({ hasText: "Build foundation" });
   await expect(foundationCard.locator('.lore-task-card__prio[data-prio="high"]')).toBeVisible();
@@ -46,6 +45,7 @@ test("validates the complete archive journey with real services", async ({ page 
   await page.getByRole("link", { name: /Build foundation/ }).click();
 
   await page.getByRole("link", { name: /Notes 4/ }).click();
+  await expect(page.locator(".lore-row").filter({ hasText: "Adapter finding" }).locator("time")).toHaveAttribute("datetime", "2026-07-04T00:00:00Z");
   await page.locator(".lore-facet").filter({ hasText: "summary" }).click();
   await expect(page).toHaveURL(/role=summary/);
   await page.locator(".lore-facet").filter({ hasText: /^lore/ }).first().click();
@@ -95,9 +95,37 @@ test("validates the complete archive journey with real services", async ({ page 
   await dismissed.getByRole("button", { name: "Dismiss" }).click();
   await expect(dismissed).toHaveAttribute("data-state", "dismissed");
 
-  await page.getByRole("link", { name: /Briefings 1/ }).click();
+  await page.getByRole("link", { name: /Annotations/ }).click();
+  await page.locator(".lore-facet").filter({ hasText: "resolved" }).click();
+  await expect(page).toHaveURL(/status=resolved/);
+  await expect(page.getByText(resolvedBody)).toBeVisible();
+  await expect(page.getByText(dismissedBody)).toHaveCount(0);
+
+  await page.getByRole("link", { name: /Watcher issues/ }).click();
+  await expect(page.locator(".watcher-issue")).toContainText("broken.md");
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByText("No watcher issues")).toBeVisible();
+
+  await page.getByRole("link", { name: /Briefings 2/ }).click();
   await openRow(page, "Architecture");
+  await page.getByLabel("Briefing settings").getByRole("textbox").fill("Foundations");
+  await page.getByRole("button", { name: "Save category" }).click();
+  await expect(page.getByText("Category saved")).toBeVisible();
+  await page.getByRole("button", { name: "Set as home" }).click();
+  await expect(page.getByText("Home briefing set")).toBeVisible();
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page).toHaveURL(/briefings\?view=list/);
+  await openRow(page, "Operations");
+  await page.getByLabel("Briefing settings").getByRole("textbox").fill("Operations");
+  await page.getByRole("button", { name: "Save category" }).click();
+  await expect(page.getByText("Category saved")).toBeVisible();
+  await page.goto("/e2e-primary/briefings");
+  await expect(page).toHaveURL(/\/briefings\/[^?]+$/);
+  await expect(page.getByRole("heading", { name: "Architecture", level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Home", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("complementary", { name: "Other briefings" }).getByRole("link", { name: "Architecture" })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".brief-category").filter({ hasText: "Foundations" })).toHaveAttribute("open", "");
+  await expect(page.locator(".brief-category").filter({ hasText: "Operations" })).not.toHaveAttribute("open", "");
   await expect(page.locator(".document-content #boundary")).toContainText("source files authoritative");
   const svgTaxonomyLink = page.locator('.document-content svg .taxonomy-link[data-taxonomy="architecture"]');
   await expect(svgTaxonomyLink).toBeVisible();

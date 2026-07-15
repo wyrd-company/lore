@@ -83,7 +83,8 @@ func TestHelpDocumentsConfigurationAndWorkflows(t *testing.T) {
 			args: []string{"help", "watch"},
 			expected: []string{
 				"credentials.yml", "watch.yml", "LORE_CONFIG", "complete scan",
-				"source-instance", "lore --config credentials.yml watch --config watch.yml",
+				"source-instance", "Supported adapters", "Watcher issues", "Retry",
+				"lore --config credentials.yml watch --config watch.yml",
 			},
 		},
 		{
