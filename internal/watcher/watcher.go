@@ -2,10 +2,13 @@ package watcher
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +30,8 @@ type Watcher struct {
 	retryInitial  time.Duration
 	retryMaximum  time.Duration
 	requeueDelay  time.Duration
+	checksumMu    sync.Mutex
+	checksums     map[string]string
 }
 
 type syncRequest struct {
@@ -35,7 +40,7 @@ type syncRequest struct {
 
 func New(config Config, api *client.Client, log io.Writer) *Watcher {
 	return &Watcher{
-		config: config, client: api, log: log, retryAttempts: 5,
+		config: config, client: api, log: log, retryAttempts: 5, checksums: make(map[string]string),
 		retryInitial: 250 * time.Millisecond, retryMaximum: 4 * time.Second, requeueDelay: 4 * time.Second,
 	}
 }
@@ -171,6 +176,9 @@ func (w *Watcher) synchronizeWithRetry(ctx context.Context, source ingest.Source
 		var warnings []string
 		if err == nil {
 			manifests, skipped, warnings, err = source.BuildForWatcher(boundary, skipPaths)
+			if err == nil {
+				w.trackChecksum(source, manifests)
+			}
 		}
 		for _, warning := range warnings {
 			w.writeLog("%s warning: %s\n", source.SourceInstance, warning)
@@ -272,4 +280,37 @@ func sourceContains(source ingest.Source, changed string) bool {
 		}
 	}
 	return false
+}
+
+// manifestChecksum fingerprints the adapter's canonical view of watched content.
+// Periodic complete scans rebuild this view, so changes are detected even when
+// fsnotify misses an event without independently traversing unrelated files.
+func manifestChecksum(manifests []synchronization.Manifest) string {
+	entries := make([]string, 0)
+	for _, manifest := range manifests {
+		for _, document := range manifest.Documents {
+			entries = append(entries, manifest.Project+"\x00"+manifest.SourceInstance+"\x00"+document.Identity+"\x00"+document.ContentHash)
+		}
+		for _, failure := range manifest.Failures {
+			entries = append(entries, manifest.Project+"\x00"+manifest.SourceInstance+"\x00failure\x00"+failure.Path+"\x00"+failure.Message)
+		}
+	}
+	sort.Strings(entries)
+	digest := sha256.New()
+	for _, entry := range entries {
+		_, _ = io.WriteString(digest, entry+"\x00")
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+func (w *Watcher) trackChecksum(source ingest.Source, manifests []synchronization.Manifest) {
+	key := source.Adapter + "\x00" + source.SourceInstance + "\x00" + strings.Join(source.WatchPaths(), "\x00")
+	checksum := manifestChecksum(manifests)
+	w.checksumMu.Lock()
+	prior, tracked := w.checksums[key]
+	w.checksums[key] = checksum
+	w.checksumMu.Unlock()
+	if tracked && prior != checksum {
+		w.writeLog("%s: watched content checksum changed; reconciling\n", source.SourceInstance)
+	}
 }

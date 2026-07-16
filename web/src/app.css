@@ -72,6 +72,7 @@
 .annotation-index__item { color: inherit; text-decoration: none; }
 .annotation-index__item:is(a):hover { border-color: var(--accent-soft-border); box-shadow: var(--shadow-2); }
 .annotation-index__head, .watcher-issue__head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.annotation-viewer__actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .annotation-index__head strong, .watcher-issue__head strong { color: var(--text-strong); }
 .annotation-index__head time, .watcher-issue__head time { margin-left: auto; color: var(--text-faint); font-size: var(--text-xs); }
 .annotation-index__item > p { margin: var(--space-2) 0; white-space: pre-wrap; }

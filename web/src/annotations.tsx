@@ -77,8 +77,13 @@ function AnnotationViewer({ project, annotation, onChanged, onClose }: { project
     setSaving(true); setError("");
     try { await api.replyToAnnotation(project, annotation.id, { body: reply, attributedUsername: attribution }); setReply(""); onChanged(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Reply failed."); } finally { setSaving(false); }
   };
+  const updateStatus = async (status: "open" | "resolved" | "dismissed") => {
+    if (!attribution.trim()) { setError("Enter your attribution name before changing annotation status."); return; }
+    setSaving(true); setError("");
+    try { await api.updateAnnotation(project, annotation.id, { status, attributedUsername: attribution }); onChanged(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Status update failed."); } finally { setSaving(false); }
+  };
   return <section className="annotation-viewer" aria-label="Selected annotation">
-    <header><div><span className="page-kicker">Selected annotation</span><h2>{annotation.documentTitle}</h2></div><button className="lore-btn lore-btn--ghost lore-btn--sm" onClick={onClose}>Close</button></header>
+    <header><div><span className="page-kicker">Selected annotation</span><h2>{annotation.documentTitle}</h2></div><div className="annotation-viewer__actions">{annotation.status === "open" ? <><button className="lore-btn lore-btn--ghost lore-btn--sm" disabled={saving} onClick={() => updateStatus("resolved")}>Resolve</button><button className="lore-btn lore-btn--ghost lore-btn--sm" disabled={saving} onClick={() => updateStatus("dismissed")}>Dismiss</button></> : <button className="lore-btn lore-btn--ghost lore-btn--sm" disabled={saving} onClick={() => updateStatus("open")}>Reopen</button>}<button className="lore-btn lore-btn--ghost lore-btn--sm" onClick={onClose}>Close</button></div></header>
     <div className="annotation-thread"><div className="annotation-thread__root"><strong>{annotation.attributedUsername}</strong><p>{annotation.body}</p></div>{annotation.replies.map((item) => <div className="annotation-thread__reply" key={item.id}><div><strong>{item.attributedUsername}</strong><time dateTime={item.createdAt}>{relativeTime(item.createdAt)}</time></div><p>{item.body}</p></div>)}</div>
     <div className="annotation-reply-composer"><textarea className="lore-textarea" aria-label="Reply" value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply to this annotation…" /><button className="lore-btn lore-btn--primary lore-btn--sm" disabled={saving || !reply.trim()} onClick={submit}>{saving ? "Replying…" : "Reply"}</button></div>
     {error && <div className="lore-error" role="alert">{error}</div>}

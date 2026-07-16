@@ -1100,7 +1100,7 @@ hr {
 .filter-panel__chevron { margin-left: auto; color: var(--text-faint); transition: transform var(--dur-med) var(--ease-standard); }
 .filter-panel[open] .filter-panel__chevron { transform: rotate(180deg); }
 .filter-panel__body {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  display: grid; grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3); padding: var(--space-3);
   border-top: var(--border-hair) solid var(--border-subtle);
   background: var(--bg-surface-2);

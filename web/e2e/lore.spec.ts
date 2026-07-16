@@ -9,6 +9,8 @@ test("validates the complete archive journey with real services", async ({ page 
   await expect(page.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".filter-panel")).not.toHaveAttribute("open", "");
   await page.locator(".filter-panel > summary").click();
+  const filterGroupTops = await page.locator(".filter-panel .facet-group").evaluateAll((groups) => groups.map((group) => Math.round(group.getBoundingClientRect().top)));
+  expect(new Set(filterGroupTops).size).toBe(filterGroupTops.length);
   await expect(page.locator(".lore-col__label")).toHaveText(["Backlog", "In Progress", "Done", "Ready for deploy", "Archived"]);
   const laneWidths = await page.locator(".lore-col").evaluateAll((lanes) => lanes.map((lane) => lane.getBoundingClientRect().width));
   expect(Math.max(...laneWidths) - Math.min(...laneWidths)).toBeLessThanOrEqual(1);
@@ -114,6 +116,11 @@ test("validates the complete archive journey with real services", async ({ page 
   await page.getByLabel("Reply", { exact: true }).fill("Browser reply on retained context");
   await page.getByRole("button", { name: "Reply", exact: true }).click();
   await expect(page.getByText("Browser reply on retained context")).toBeVisible();
+  await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "PATCH" && response.url().includes("/annotations/") && response.ok()),
+    page.getByRole("button", { name: "Resolve", exact: true }).click(),
+  ]);
+  await expect(page.locator(".annotation-index__item.is-active .lore-status")).toHaveText("resolved");
 
   await page.getByRole("link", { name: /Watcher issues/ }).click();
   await expect(page.locator(".watcher-issue")).toContainText("broken.md");

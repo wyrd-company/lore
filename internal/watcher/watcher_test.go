@@ -80,6 +80,20 @@ func TestWatcherSkipsRecordedFailureUntilItIsRemoved(t *testing.T) {
 	}
 }
 
+func TestManifestChecksumTracksContentAndIdentityChanges(t *testing.T) {
+	manifest := synchronization.Manifest{Project: "lore", SourceInstance: "notes", Documents: []synchronization.Document{{Identity: "note.md", ContentHash: strings.Repeat("a", 64)}}}
+	initial := manifestChecksum([]synchronization.Manifest{manifest})
+	manifest.Documents[0].ContentHash = strings.Repeat("b", 64)
+	changed := manifestChecksum([]synchronization.Manifest{manifest})
+	if initial == changed {
+		t.Fatal("checksum did not change with content hash")
+	}
+	manifest.Documents[0].Identity = "renamed.md"
+	if changed == manifestChecksum([]synchronization.Manifest{manifest}) {
+		t.Fatal("checksum did not change with identity")
+	}
+}
+
 func TestEnqueueCoalescesToLatestRequestWithoutWeakeningCompleteBoundary(t *testing.T) {
 	tests := []struct {
 		name     string
