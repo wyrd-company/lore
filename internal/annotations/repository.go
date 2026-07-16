@@ -138,6 +138,42 @@ func (repository *Repository) Update(ctx context.Context, projectID, annotationI
 	return repository.Get(ctx, projectID, annotationID)
 }
 
+func (repository *Repository) Reply(ctx context.Context, projectID, annotationID uuid.UUID, request ReplyRequest) (Reply, error) {
+	body := strings.TrimSpace(request.Body)
+	username := strings.TrimSpace(request.AttributedUsername)
+	if body == "" || username == "" {
+		return Reply{}, fmt.Errorf("%w: body and attributedUsername are required", ErrInvalid)
+	}
+	tx, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return Reply{}, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
+	if err := tx.QueryRow(ctx, `SELECT id FROM annotations WHERE project_id = $1 AND id = $2 FOR UPDATE`, projectID, annotationID).Scan(&annotationID); err != nil {
+		return Reply{}, notFound(err)
+	}
+	var reply Reply
+	err = tx.QueryRow(ctx, `
+		INSERT INTO annotation_replies (project_id, annotation_id, body, attributed_username)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, annotation_id, body, attributed_username, created_at, updated_at`, projectID, annotationID, body, username).
+		Scan(&reply.ID, &reply.AnnotationID, &reply.Body, &reply.AttributedUsername, &reply.CreatedAt, &reply.UpdatedAt)
+	if err != nil {
+		return Reply{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE annotations SET updated_by = $1 WHERE project_id = $2 AND id = $3`, username, projectID, annotationID); err != nil {
+		return Reply{}, err
+	}
+	details, _ := json.Marshal(map[string]any{"replyId": reply.ID})
+	if err := addEvent(ctx, tx, projectID, annotationID, "reply", username, details); err != nil {
+		return Reply{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Reply{}, err
+	}
+	return reply, nil
+}
+
 func revisionTarget(ctx context.Context, tx pgx.Tx, projectID, documentID, revisionID uuid.UUID, expectedHash string) (json.RawMessage, error) {
 	var hash string
 	var provenance json.RawMessage

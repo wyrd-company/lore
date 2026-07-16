@@ -37,6 +37,17 @@ func TestAnnotationLifecycleRetentionCleanupAndExportWithPostgres(t *testing.T) 
 	if annotation.Status != "open" || annotation.AttributedUsername != "alice" || annotation.RevisionIdentity != revisionOne {
 		t.Fatalf("created annotation = %#v", annotation)
 	}
+	var reply annotationmodel.Reply
+	doJSON(t, http.MethodPost, server.URL+"/api/projects/lore/annotations/"+annotation.ID.String()+"/replies", "", map[string]any{
+		"body": "I will clarify it.", "attributedUsername": "bob",
+	}, http.StatusCreated, &reply)
+	if reply.AnnotationID != annotation.ID || reply.Body != "I will clarify it." || reply.AttributedUsername != "bob" {
+		t.Fatalf("reply = %#v", reply)
+	}
+	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/annotations/"+annotation.ID.String(), "", nil, http.StatusOK, &annotation)
+	if len(annotation.Replies) != 1 || annotation.Replies[0].ID != reply.ID {
+		t.Fatalf("annotation replies = %#v", annotation.Replies)
+	}
 
 	var listing struct {
 		Annotations []annotationmodel.Record `json:"annotations"`
@@ -91,7 +102,7 @@ func TestAnnotationLifecycleRetentionCleanupAndExportWithPostgres(t *testing.T) 
 		Events []annotationmodel.Event `json:"events"`
 	}
 	doJSON(t, http.MethodGet, server.URL+"/api/projects/lore/annotations/"+annotation.ID.String()+"/events", "", nil, http.StatusOK, &events)
-	if len(events.Events) != 3 || events.Events[0].AttributedUsername != "alice" || events.Events[2].Operation != "move" {
+	if len(events.Events) != 4 || events.Events[0].AttributedUsername != "alice" || events.Events[1].Operation != "reply" || events.Events[3].Operation != "move" {
 		t.Fatalf("annotation events = %#v", events.Events)
 	}
 

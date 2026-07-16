@@ -56,6 +56,14 @@ func TestAnnotationSnapshotAndIncrementalExportThroughCLIWithPostgres(t *testing
 
 	var output bytes.Buffer
 	runner := New(&output, &output)
+	if err := runner.Run(ctx, []string{"annotation", "reply", "--project", "lore", "--server", server.URL, "--body", "CLI reply", "--attributed-username", "codex", record.ID.String()}); err != nil {
+		t.Fatal(err)
+	}
+	var reply annotations.Reply
+	if err := json.Unmarshal(output.Bytes(), &reply); err != nil || reply.AnnotationID != record.ID || reply.Body != "CLI reply" {
+		t.Fatalf("CLI reply = %#v, err = %v, output = %s", reply, err, output.String())
+	}
+	output.Reset()
 	if err := runner.Run(ctx, []string{"annotation", "export", "--project", "lore", "--server", server.URL}); err != nil {
 		t.Fatal(err)
 	}

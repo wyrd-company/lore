@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "./api";
 import type { BrowseResponse, ProjectSummary } from "./types";
@@ -59,6 +59,7 @@ export function App() {
   const [projectFilter, setProjectFilter] = useState("");
   const [attribution, setAttribution] = useAttribution();
   const [theme, setTheme] = useStoredValue("lore.theme", "system");
+  const projectMenu = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     document.documentElement.removeAttribute("data-theme");
@@ -108,12 +109,12 @@ export function App() {
       </Link>
       <header className="l-header">
         <button className="lore-btn lore-btn--ghost lore-btn--icon l-mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-expanded={sidebarOpen} aria-label="Toggle navigation">☰</button>
-        <details className="project-menu">
+        <details className="project-menu" ref={projectMenu}>
           <summary className="lore-project-select"><span className="lore-project-select__dot" />{browse?.project.name ?? (loading ? "Loading…" : "Select project")}<span className="lore-project-select__caret">⌄</span></summary>
           <div className="lore-popover project-menu__popover">
             <label className="lore-visually-hidden" htmlFor="project-filter">Filter projects</label>
             <input id="project-filter" className="lore-input" placeholder="Filter projects…" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} />
-            {filteredProjects.map((item) => <button className="lore-menu-item" key={item.id} onClick={() => navigate(`/${item.slug}`)}><span className="lore-project-select__dot" />{item.name}</button>)}
+            {filteredProjects.map((item) => <button className="lore-menu-item" key={item.id} onClick={() => { projectMenu.current?.removeAttribute("open"); setProjectFilter(""); navigate(`/${item.slug}`); }}><span className="lore-project-select__dot" />{item.name}</button>)}
           </div>
         </details>
         <span className="l-header__spacer" />

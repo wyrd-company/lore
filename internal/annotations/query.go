@@ -13,7 +13,11 @@ func (repository *Repository) Get(ctx context.Context, projectID, annotationID u
 	if err := scanRecord(repository.pool.QueryRow(ctx, recordSelect+` WHERE a.project_id = $1 AND a.id = $2`, projectID, annotationID), &record); err != nil {
 		return record, notFound(err)
 	}
-	return record, nil
+	records := []Record{record}
+	if err := repository.loadReplies(ctx, projectID, records); err != nil {
+		return record, err
+	}
+	return records[0], nil
 }
 
 func (repository *Repository) List(ctx context.Context, projectID uuid.UUID, filters Filters) ([]Record, error) {
@@ -36,7 +40,44 @@ func (repository *Repository) List(ctx context.Context, projectID uuid.UUID, fil
 		}
 		result = append(result, record)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := repository.loadReplies(ctx, projectID, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (repository *Repository) loadReplies(ctx context.Context, projectID uuid.UUID, records []Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(records))
+	byID := make(map[uuid.UUID]int, len(records))
+	for index := range records {
+		ids[index] = records[index].ID
+		byID[records[index].ID] = index
+		records[index].Replies = []Reply{}
+	}
+	rows, err := repository.pool.Query(ctx, `
+		SELECT id, annotation_id, body, attributed_username, created_at, updated_at
+		FROM annotation_replies
+		WHERE project_id = $1 AND annotation_id = ANY($2)
+		ORDER BY created_at, id`, projectID, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var reply Reply
+		if err := rows.Scan(&reply.ID, &reply.AnnotationID, &reply.Body, &reply.AttributedUsername, &reply.CreatedAt, &reply.UpdatedAt); err != nil {
+			return err
+		}
+		index := byID[reply.AnnotationID]
+		records[index].Replies = append(records[index].Replies, reply)
+	}
+	return rows.Err()
 }
 
 func (repository *Repository) Events(ctx context.Context, projectID, annotationID uuid.UUID) ([]Event, error) {

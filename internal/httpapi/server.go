@@ -62,6 +62,7 @@ func New(pool *pgxpool.Pool, ingestToken, adminToken string, embedders ...*embed
 	mux.Handle("GET /api/projects/{project}/annotations/export", projectScope(pool, http.HandlerFunc(server.exportAnnotations)))
 	mux.Handle("GET /api/projects/{project}/annotations/{annotation}", projectScope(pool, http.HandlerFunc(server.getAnnotation)))
 	mux.Handle("PATCH /api/projects/{project}/annotations/{annotation}", projectScope(pool, http.HandlerFunc(server.updateAnnotation)))
+	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/replies", projectScope(pool, http.HandlerFunc(server.replyToAnnotation)))
 	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/copy", projectScope(pool, http.HandlerFunc(server.copyAnnotation)))
 	mux.Handle("POST /api/projects/{project}/annotations/{annotation}/move", projectScope(pool, http.HandlerFunc(server.moveAnnotation)))
 	mux.Handle("GET /api/projects/{project}/annotations/{annotation}/events", projectScope(pool, http.HandlerFunc(server.annotationEvents)))

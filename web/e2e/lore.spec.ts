@@ -7,6 +7,8 @@ test("validates the complete archive journey with real services", async ({ page 
 
   await page.getByRole("link", { name: /Tasks 2/ }).click();
   await expect(page.getByRole("button", { name: "Board", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".filter-panel")).not.toHaveAttribute("open", "");
+  await page.locator(".filter-panel > summary").click();
   await expect(page.locator(".lore-col__label")).toHaveText(["Backlog", "In Progress", "Done", "Ready for deploy", "Archived"]);
   const laneWidths = await page.locator(".lore-col").evaluateAll((lanes) => lanes.map((lane) => lane.getBoundingClientRect().width));
   expect(Math.max(...laneWidths) - Math.min(...laneWidths)).toBeLessThanOrEqual(1);
@@ -46,6 +48,7 @@ test("validates the complete archive journey with real services", async ({ page 
 
   await page.getByRole("link", { name: /Notes 4/ }).click();
   await expect(page.locator(".lore-row").filter({ hasText: "Adapter finding" }).locator("time")).toHaveAttribute("datetime", "2026-07-04T00:00:00Z");
+  await page.locator(".filter-panel > summary").click();
   await page.locator(".lore-facet").filter({ hasText: "summary" }).click();
   await expect(page).toHaveURL(/role=summary/);
   await page.locator(".lore-facet").filter({ hasText: /^lore/ }).first().click();
@@ -96,10 +99,21 @@ test("validates the complete archive journey with real services", async ({ page 
   await expect(dismissed).toHaveAttribute("data-state", "dismissed");
 
   await page.getByRole("link", { name: /Annotations/ }).click();
+  await expect(page).not.toHaveURL(/status=/);
+  await expect(page.getByText(resolvedBody)).toHaveCount(0);
+  await page.locator(".filter-panel > summary").click();
   await page.locator(".lore-facet").filter({ hasText: "resolved" }).click();
   await expect(page).toHaveURL(/status=resolved/);
   await expect(page.getByText(resolvedBody)).toBeVisible();
   await expect(page.getByText(dismissedBody)).toHaveCount(0);
+  await page.locator(".lore-facet").filter({ hasText: "All" }).click();
+  await page.locator(".annotation-index__item").filter({ hasText: "retained revision" }).first().getByRole("button", { name: /View annotation on Adapter finding/ }).click();
+  await expect(page.locator(".annotation-revision-pane")).toHaveCount(2);
+  await expect(page.getByText("Annotated version", { exact: true })).toBeVisible();
+  await expect(page.getByText("Current version", { exact: true })).toBeVisible();
+  await page.getByLabel("Reply", { exact: true }).fill("Browser reply on retained context");
+  await page.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(page.getByText("Browser reply on retained context")).toBeVisible();
 
   await page.getByRole("link", { name: /Watcher issues/ }).click();
   await expect(page.locator(".watcher-issue")).toContainText("broken.md");
@@ -137,6 +151,7 @@ test("validates the complete archive journey with real services", async ({ page 
   await page.getByRole("link", { name: /Repository 3/ }).click();
   await expect(page.getByRole("heading", { name: "git@github.com:wyrd-company/lore-e2e-fixture.git" })).toBeVisible();
   await expect(page.getByText(/e2e\/real-services/)).toBeVisible();
+  await page.locator(".filter-panel > summary").click();
   await page.locator(".lore-facet").filter({ hasText: /^term/ }).click();
   await expect(page).toHaveURL(/schema=term/);
   await expect(page.locator(".lore-row")).toHaveCount(1);
@@ -182,6 +197,7 @@ test("validates the complete archive journey with real services", async ({ page 
   await page.getByRole("button", { name: "Isolated archive" }).click();
   await expect(page).toHaveURL(/\/e2e-isolated$/);
   await expect(page.locator(".project-menu summary")).toContainText("Isolated archive");
+  await expect(page.locator(".project-menu")).not.toHaveAttribute("open", "");
   const search = page.getByRole("textbox", { name: "Search this project" });
   await search.fill("velvet-quasar-719");
   await search.press("Enter");

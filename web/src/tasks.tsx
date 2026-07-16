@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { PageError, useProject } from "./app";
+import { FilterGroup, FilterPanel } from "./filters";
 import { orderedTaskLanes, taskPriority, taskStatus, taskStatusKey, type TaskLane } from "./task-board";
 import type { DocumentSummary } from "./types";
 import { documentHref } from "./utils";
@@ -67,12 +68,13 @@ function TasksToolbar({ tasks, lanes, params, view, onFacet, onView }: {
   const tags = [...new Set(tasks.flatMap((task) => task.tags))].sort((left, right) => left.localeCompare(right));
   const priorities = [...new Set(tasks.map(taskPriority))].sort((left, right) => priorityRank(left) - priorityRank(right) || left.localeCompare(right));
   const facet = (kind: Facet, value: string, label: string, count: number) => <button className="lore-facet" aria-pressed={params.getAll(kind).includes(value)} onClick={() => onFacet(kind, value)} key={`${kind}:${value}`}>{label}<span className="lore-facet__count">{count}</span></button>;
+  const activeCount = (["status", "priority", "tag"] as Facet[]).reduce((count, kind) => count + params.getAll(kind).length, 0);
   return <div className="lore-tasks-toolbar">
-    <div className="lore-facets" aria-label="Task filters">
-      <span className="task-facet-label">Status</span>{lanes.map((lane) => facet("status", lane.key, lane.label, tasks.filter((task) => taskStatusKey(taskStatus(task)) === lane.key).length))}
-      {priorities.length > 0 && <><span className="task-facet-label">Priority</span>{priorities.map((priority) => facet("priority", priority, titleCase(priority), tasks.filter((task) => taskPriority(task) === priority).length))}</>}
-      {tags.length > 0 && <><span className="task-facet-label">Tag</span>{tags.map((tag) => facet("tag", tag, tag, tasks.filter((task) => task.tags.includes(tag)).length))}</>}
-    </div>
+    <FilterPanel activeCount={activeCount}>
+      <FilterGroup title="Status">{lanes.map((lane) => facet("status", lane.key, lane.label, tasks.filter((task) => taskStatusKey(taskStatus(task)) === lane.key).length))}</FilterGroup>
+      {priorities.length > 0 && <FilterGroup title="Priority">{priorities.map((priority) => facet("priority", priority, titleCase(priority), tasks.filter((task) => taskPriority(task) === priority).length))}</FilterGroup>}
+      {tags.length > 0 && <FilterGroup title="Tag">{tags.map((tag) => facet("tag", tag, tag, tasks.filter((task) => task.tags.includes(tag)).length))}</FilterGroup>}
+    </FilterPanel>
     <div className="lore-segmented lore-tasks-toolbar__view" role="group" aria-label="Tasks view">
       <button aria-pressed={view === "board"} onClick={() => onView("board")}>Board</button>
       <button aria-pressed={view === "list"} onClick={() => onView("list")}>List</button>

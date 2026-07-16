@@ -260,18 +260,19 @@ Example mapping:
 Example:
   lore upload conversations --source-instance codex --provider codex --complete --mapping projects.yml ~/.codex/sessions`,
 
-	"annotations": `Export project annotations for backup, processing, or incremental synchronization.
+	"annotations": `Export project annotations or reply to an existing annotation.
 
 Usage:
-  lore annotations export [flags]
+  lore annotations <export|reply> [flags]
 
 Aliases:
   lore annotation export
 
-Annotations are created and managed in the Lore web interface. The CLI currently
-provides a lossless JSON export; it does not create, resolve, or import annotations.
+Commands:
+  export  Write a lossless JSON snapshot or incremental export
+  reply   Add an attributed reply to an annotation thread
 
-Run 'lore help annotations export' for snapshot and cursor semantics.`,
+Run 'lore help annotations <command>' for command-specific usage.`,
 
 	"annotations export": `Export exactly one project's annotations as lore.annotations/v1 JSON.
 
@@ -295,6 +296,23 @@ next incremental export. Output files are created with owner-only permissions.
 Examples:
   LORE_PROJECT=refinery lore annotations export --output annotations.json
   lore annotations export --project refinery --after 12345 --output changes.json`,
+
+	"annotations reply": `Add an attributed reply to one annotation thread.
+
+Usage:
+  lore annotations reply [--project <slug>] --body <text> --attributed-username <name> <annotation-uuid>
+
+Flags:
+  --project <slug>              Project containing the annotation; defaults to LORE_PROJECT
+  --body <text>                 Reply body
+  --attributed-username <name>  Person or agent responsible for the reply
+  --server <url>                Lore server; LORE_SERVER_URL or client configuration
+  --config <path>               Client credential YAML
+
+The created reply is written as indented JSON.
+
+Example:
+  lore annotations reply --project refinery --body "Addressed in the current design." --attributed-username Bob 550e8400-e29b-41d4-a716-446655440000`,
 
 	"briefings": `Inspect or write the briefing authoring resources embedded in this Lore version.
 

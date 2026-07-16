@@ -75,6 +75,22 @@ func (s *Server) updateAnnotation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, record)
 }
 
+func (s *Server) replyToAnnotation(w http.ResponseWriter, r *http.Request) {
+	project, annotationID, ok := scopedAnnotation(w, r)
+	if !ok {
+		return
+	}
+	var request annotations.ReplyRequest
+	if !decodeOne(w, r, &request) {
+		return
+	}
+	reply, err := s.annotations.Reply(r.Context(), project.ID, annotationID, request)
+	if annotationError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusCreated, reply)
+}
+
 func (s *Server) copyAnnotation(w http.ResponseWriter, r *http.Request) {
 	s.retargetAnnotation(w, r, false)
 }

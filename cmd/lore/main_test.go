@@ -26,6 +26,7 @@ func TestHelpCommandsExitZero(t *testing.T) {
 		{name: "conversation upload", args: []string{"upload", "conversations", "--help"}},
 		{name: "annotation group", args: []string{"annotations", "--help"}},
 		{name: "annotation command", args: []string{"annotation", "export", "--help"}},
+		{name: "annotation reply", args: []string{"annotation", "reply", "--help"}},
 		{name: "briefing group", args: []string{"briefings", "--help"}},
 		{name: "briefing show css", args: []string{"briefing", "show-css", "--help"}},
 		{name: "briefing show skill", args: []string{"briefing", "show-skill", "--help"}},

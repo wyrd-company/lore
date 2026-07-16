@@ -9,6 +9,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/google/uuid"
+
+	"github.com/wyrd-company/lore/internal/annotations"
 	"github.com/wyrd-company/lore/internal/briefings"
 	"github.com/wyrd-company/lore/internal/client"
 	"github.com/wyrd-company/lore/internal/config"
@@ -297,12 +300,15 @@ func (r *Runner) annotations(ctx context.Context, args []string, inherited confi
 		r.commandUsage(r.Out, "annotations")
 		return nil
 	}
-	if args[0] != "export" {
+	if args[0] != "export" && args[0] != "reply" {
 		return r.usageError(fmt.Errorf("unknown annotations command %q", args[0]), "annotations")
 	}
 	if helpRequested(args[1:]) {
-		r.commandUsage(r.Out, "annotations export")
+		r.commandUsage(r.Out, "annotations "+args[0])
 		return nil
+	}
+	if args[0] == "reply" {
+		return r.annotationReply(ctx, args[1:], inherited)
 	}
 	selection, err := selectionFromArgs(args[1:], inherited)
 	if err != nil {
@@ -356,6 +362,48 @@ func (r *Runner) annotations(ctx context.Context, args []string, inherited confi
 		return fmt.Errorf("write annotation export: %w", err)
 	}
 	return nil
+}
+
+func (r *Runner) annotationReply(ctx context.Context, args []string, inherited configSelection) error {
+	selection, err := selectionFromArgs(args, inherited)
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveClientConfig(selection)
+	if err != nil {
+		return err
+	}
+	flags := flag.NewFlagSet("annotations reply", flag.ContinueOnError)
+	flags.SetOutput(r.ErrOut)
+	project := flags.String("project", os.Getenv("LORE_PROJECT"), "Lore project slug")
+	server := flags.String("server", resolved.ServerURL.Value, "Lore server base URL")
+	_ = flags.String("config", selection.Path, "Lore client credential configuration YAML")
+	body := flags.String("body", "", "reply body")
+	attributedUsername := flags.String("attributed-username", "", "name attributed to the reply")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" {
+		return fmt.Errorf("--project or LORE_PROJECT is required")
+	}
+	if flags.NArg() != 1 {
+		return fmt.Errorf("exactly one annotation UUID is required")
+	}
+	annotationID, err := uuid.Parse(flags.Arg(0))
+	if err != nil {
+		return fmt.Errorf("annotation must be a UUID")
+	}
+	api, err := client.NewViewer(*server)
+	if err != nil {
+		return err
+	}
+	reply, err := api.ReplyToAnnotation(ctx, *project, annotationID, annotations.ReplyRequest{Body: *body, AttributedUsername: *attributedUsername})
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(r.Out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(reply)
 }
 
 func (r *Runner) watch(ctx context.Context, args []string, selection configSelection) error {

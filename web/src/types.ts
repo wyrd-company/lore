@@ -136,6 +136,16 @@ export interface Annotation {
   resolvedBy?: string;
   createdAt: string;
   updatedAt: string;
+  replies: AnnotationReply[];
+}
+
+export interface AnnotationReply {
+  id: string;
+  annotationId: string;
+  body: string;
+  attributedUsername: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface IngestionFailure {

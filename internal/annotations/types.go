@@ -44,6 +44,21 @@ type Record struct {
 	CreatedAt            time.Time       `json:"createdAt"`
 	UpdatedAt            time.Time       `json:"updatedAt"`
 	ChangeSequence       int64           `json:"changeSequence"`
+	Replies              []Reply         `json:"replies"`
+}
+
+type Reply struct {
+	ID                 uuid.UUID `json:"id"`
+	AnnotationID       uuid.UUID `json:"annotationId"`
+	Body               string    `json:"body"`
+	AttributedUsername string    `json:"attributedUsername"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
+type ReplyRequest struct {
+	Body               string `json:"body"`
+	AttributedUsername string `json:"attributedUsername"`
 }
 
 type Event struct {

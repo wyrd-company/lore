@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageError, PageLoading, useProject } from "./app";
+import { FilterGroup, FilterPanel } from "./filters";
 import type { DocumentSummary, SourceType } from "./types";
 import { documentHref, jsonString, sourceBadgeType, sourceLabel } from "./utils";
 
@@ -65,8 +66,11 @@ export function SourceIndexPage({ section }: { section: SourceSection }) {
   if (error || !browse) return <PageError message={error ?? "Section unavailable."} retry={reload} />;
   return <div className="l-page">
     <div className="lore-page-head"><span className="page-kicker">{sourceLabel(config.type)}</span><h1 className="lore-page-head__title">{config.title}</h1><p className="lore-muted">{documents?.length ?? 0} documents in {browse.project.name}</p></div>
-    <div className="section-tools"><input className="lore-input" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={`Filter ${config.title.toLowerCase()}…`} aria-label={`Filter ${config.title.toLowerCase()}`} />{section === "notes" && <label>Sort <select className="lore-select" value={params.get("sort") ?? "updatedAt"} onChange={(event) => { const next = new URLSearchParams(params); next.set("sort", event.target.value); setParams(next, { replace: true }); }}><option value="updatedAt">Updated</option><option value="createdAt">Created</option><option value="title">Title</option></select></label>}</div>
-    {section === "notes" && documents && <NoteFacets documents={documents} params={params} toggle={toggleNoteFacet} />}
+    <FilterPanel activeCount={(filter ? 1 : 0) + ["role", "tag", "lifecycle", "projectName"].reduce((count, key) => count + params.getAll(key).length, 0)}>
+      <FilterGroup title="Text"><input className="lore-input" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={`Filter ${config.title.toLowerCase()}…`} aria-label={`Filter ${config.title.toLowerCase()}`} /></FilterGroup>
+      {section === "notes" && <FilterGroup title="Sort"><select className="lore-select" aria-label="Sort" value={params.get("sort") ?? "updatedAt"} onChange={(event) => { const next = new URLSearchParams(params); next.set("sort", event.target.value); setParams(next, { replace: true }); }}><option value="updatedAt">Updated</option><option value="createdAt">Created</option><option value="title">Title</option></select></FilterGroup>}
+      {section === "notes" && documents && <NoteFacets documents={documents} params={params} toggle={toggleNoteFacet} />}
+    </FilterPanel>
     {filtered.length ? <DocumentList documents={filtered} project={project} /> : <EmptyState section={config.title.toLowerCase()} hint={config.hint} />}
   </div>;
 }
@@ -121,11 +125,11 @@ export function RepositoryIndexPage() {
     && (!params.getAll("tag").length || params.getAll("tag").every((tag) => document.tags.includes(tag))),
   ) })).filter((group) => group.documents.length);
   return <div className="l-page"><div className="lore-page-head"><span className="page-kicker">Source archive</span><h1 className="lore-page-head__title">Repository documents</h1><p className="lore-muted">Grouped by repository and branch.</p></div>
-    <div className="lore-facets" aria-label="Repository document filters">
-      {repositories.length > 1 && <><span className="task-facet-label">Repository</span>{repositories.map((value) => facetButton("repository", value, value, documents.filter((document) => jsonString(document.metadata.repository) === value).length, params, toggle))}</>}
-      {schemaTypes.length > 0 && <><span className="task-facet-label">Schema</span>{schemaTypes.map((value) => facetButton("schema", value, value, documents.filter((document) => jsonString(document.metadata.schemaType) === value).length, params, toggle))}</>}
-      {tags.length > 0 && <><span className="task-facet-label">Tag</span>{tags.map((value) => facetButton("tag", value, value, documents.filter((document) => document.tags.includes(value)).length, params, toggle))}</>}
-    </div>
+    <FilterPanel activeCount={["repository", "schema", "tag"].reduce((count, key) => count + params.getAll(key).length, 0)}>
+      {repositories.length > 1 && <FilterGroup title="Repository">{repositories.map((value) => facetButton("repository", value, value, documents.filter((document) => jsonString(document.metadata.repository) === value).length, params, toggle))}</FilterGroup>}
+      {schemaTypes.length > 0 && <FilterGroup title="Schema">{schemaTypes.map((value) => facetButton("schema", value, value, documents.filter((document) => jsonString(document.metadata.schemaType) === value).length, params, toggle))}</FilterGroup>}
+      {tags.length > 0 && <FilterGroup title="Tag">{tags.map((value) => facetButton("tag", value, value, documents.filter((document) => document.tags.includes(value)).length, params, toggle))}</FilterGroup>}
+    </FilterPanel>
     {filteredGroups.length ? filteredGroups.map((group) => <section className="repo-group" key={`${group.repository}@${group.branch}`}><div className="repo-group__head"><h2>{group.repository}</h2><span className="lore-chip">⑂ {group.branch}</span></div><DocumentList documents={group.documents} project={project} /></section>) : <EmptyState section="matching repository documents" hint={browse.repositories.length ? "Adjust the repository, schema, or tag filters." : "Upload files or a directory with lore upload repository."} />}
   </div>;
 }
@@ -138,7 +142,7 @@ function NoteFacets({ documents, params, toggle }: { documents: DocumentSummary[
     ["lifecycle", "Lifecycle", metadataValues("lifecycle")],
     ["projectName", "Project", metadataValues("projectName")],
   ] as const;
-  return <div className="lore-facets" aria-label="Note filters">{groups.map(([key, label, values]) => values.length ? <span className="facet-run" key={key}><span className="task-facet-label">{label}</span>{values.map((value) => facetButton(key, value, value, documents.filter((document) => key === "tag" ? document.tags.includes(value) : jsonString(document.metadata[key]) === value).length, params, toggle))}</span> : null)}</div>;
+  return <>{groups.map(([key, label, values]) => values.length ? <FilterGroup title={label} key={key}>{values.map((value) => facetButton(key, value, value, documents.filter((document) => key === "tag" ? document.tags.includes(value) : jsonString(document.metadata[key]) === value).length, params, toggle))}</FilterGroup> : null)}</>;
 }
 
 function facetButton(key: string, value: string, label: string, count: number, params: URLSearchParams, toggle: (key: string, value: string) => void) {

@@ -32,6 +32,7 @@ export const api = {
   },
   createAnnotation: (project: string, body: unknown) => request<Annotation>(`${projectPath(project)}/annotations`, { method: "POST", body: JSON.stringify(body) }),
   updateAnnotation: (project: string, id: string, body: unknown) => request<Annotation>(`${projectPath(project)}/annotations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  replyToAnnotation: (project: string, id: string, body: { body: string; attributedUsername: string }) => request(`${projectPath(project)}/annotations/${id}/replies`, { method: "POST", body: JSON.stringify(body) }),
   retargetAnnotation: (project: string, id: string, operation: "copy" | "move", body: unknown) => request<Annotation>(`${projectPath(project)}/annotations/${id}/${operation}`, { method: "POST", body: JSON.stringify(body) }),
   ingestionFailures: async (project: string) => (await request<{ failures: IngestionFailure[] }>(`${projectPath(project)}/ingestion-failures`)).failures,
   retryIngestionFailure: (project: string, id: string) => request<void>(`${projectPath(project)}/ingestion-failures/${id}`, { method: "DELETE" }),

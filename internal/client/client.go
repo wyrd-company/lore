@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/wyrd-company/lore/internal/annotations"
 	"github.com/wyrd-company/lore/internal/ingestfailures"
 	"github.com/wyrd-company/lore/internal/projects"
@@ -128,6 +130,15 @@ func (c *Client) ExportAnnotations(ctx context.Context, project string, after in
 		return export, fmt.Errorf("decode annotation export: %w", err)
 	}
 	return export, nil
+}
+
+func (c *Client) ReplyToAnnotation(ctx context.Context, project string, annotationID uuid.UUID, request annotations.ReplyRequest) (annotations.Reply, error) {
+	var reply annotations.Reply
+	path := "/api/projects/" + url.PathEscape(project) + "/annotations/" + annotationID.String() + "/replies"
+	if err := c.doJSON(ctx, http.MethodPost, path, request, &reply); err != nil {
+		return reply, err
+	}
+	return reply, nil
 }
 
 func (c *Client) Search(ctx context.Context, project string, searchRequest retrieval.Request) (retrieval.Response, error) {
