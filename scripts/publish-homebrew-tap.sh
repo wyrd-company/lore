@@ -34,7 +34,6 @@ cat >"$formula" <<EOF
 class Lore < Formula
   desc "Project-scoped knowledge portal command-line client"
   homepage "https://github.com/${REPOSITORY}"
-  version "${VERSION}"
 
   on_macos do
     on_arm do
