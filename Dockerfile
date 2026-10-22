@@ -16,7 +16,7 @@ COPY --from=web-build /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/wyrd-company/lore/internal/version.Value=${VERSION}" -o /out/lore-server ./cmd/lore-server && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/wyrd-company/lore/internal/version.Value=${VERSION}" -o /out/lore ./cmd/lore
 
-FROM alpine:3.22 AS server
+FROM alpine:3.24 AS server
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S lore && adduser -S -G lore lore
 COPY --from=go-build /out/lore-server /usr/local/bin/lore-server
