@@ -7,7 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.5
-	github.com/yuin/goldmark v1.8.4
+	github.com/yuin/goldmark v1.8.7
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	golang.org/x/net v0.21.0
 	gopkg.in/yaml.v3 v3.0.1
